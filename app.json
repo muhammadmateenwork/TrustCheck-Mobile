@@ -1,0 +1,41 @@
+{
+  "expo": {
+    "name": "TrustCheck-Mobile",
+    "slug": "TrustCheck-Mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0B4F6C",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "package": "com.anonymous.TrustCheckMobile"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "@react-native-community/datetimepicker"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "58f01fea-dba0-4542-a710-a318b2cc491f"
+      }
+    },
+    "owner": "mateen543",
+    "updates": {
+      "url": "https://u.expo.dev/58f01fea-dba0-4542-a710-a318b2cc491f"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    }
+  }
+}
