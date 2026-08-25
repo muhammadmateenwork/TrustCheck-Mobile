@@ -9,6 +9,7 @@ import TextField from '../components/TextField';
 import SelectField from '../components/SelectField';
 import Button from '../components/Button';
 import FormSection from '../components/FormSection';
+import WizardHeader from '../components/WizardHeader';
 import KeyboardAvoidingScreen from '../components/KeyboardAvoidingScreen';
 import { colors } from '../theme';
 
@@ -64,7 +65,7 @@ export default function TestSetupScreen({ navigation }: Props) {
       contentContainerStyle={[styles.container, { paddingBottom: 20 + insets.bottom }]}
       keyboardShouldPersistTaps="handled"
     >
-      <Text style={styles.title}>Test Setup</Text>
+      <WizardHeader title="Test Setup" step={2} />
 
       <FormSection>
         <TextField label="Company *" value={company} onChangeText={setCompany} startIcon="business" />
@@ -91,7 +92,6 @@ export default function TestSetupScreen({ navigation }: Props) {
 
 const styles = StyleSheet.create({
   container: { padding: 20, backgroundColor: colors.background },
-  title: { fontSize: 22, fontWeight: '700', color: colors.textPrimary, marginBottom: 16 },
   bottomBar: { flexDirection: 'row', gap: 12, marginTop: 12 },
   backButton: { flex: 1 },
   nextButton: { flex: 1 },

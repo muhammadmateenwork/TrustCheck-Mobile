@@ -1,14 +1,54 @@
 import React from 'react';
-import { Modal, View, Text, StyleSheet, ScrollView } from 'react-native';
+import { Modal, View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
 import RadioGroup, { RadioOption } from './RadioGroup';
 import SelectField from './SelectField';
+import DateField from './DateField';
 import Button from './Button';
 import { Sort, ResultOption } from '../models/HistoryFilter';
-import { ANONYMOUS_OPERATOR_FILTER } from '../services/cloudSync';
+import { DateRange } from '../services/cloudSync';
 import { colors } from '../theme';
 
 const ALL_OPERATORS_LABEL = 'All operators';
-const ANONYMOUS_OPERATOR_LABEL = 'Anonymous (no login)';
+
+function startOfDay(millis: number): number {
+  const d = new Date(millis);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+function endOfDay(millis: number): number {
+  const d = new Date(millis);
+  d.setHours(23, 59, 59, 999);
+  return d.getTime();
+}
+
+function daysAgo(n: number): number {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return d.getTime();
+}
+
+const DATE_PRESETS: { label: string; range: () => DateRange }[] = [
+  { label: 'Last 7 days', range: () => ({ fromMillis: startOfDay(daysAgo(6)), toMillis: endOfDay(Date.now()) }) },
+  { label: 'Last 30 days', range: () => ({ fromMillis: startOfDay(daysAgo(29)), toMillis: endOfDay(Date.now()) }) },
+  {
+    label: 'This month',
+    range: () => {
+      const now = new Date();
+      return { fromMillis: new Date(now.getFullYear(), now.getMonth(), 1).getTime(), toMillis: endOfDay(Date.now()) };
+    },
+  },
+  {
+    label: 'Last month',
+    range: () => {
+      const now = new Date();
+      const firstOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const lastOfPrevMonth = new Date(firstOfThisMonth.getTime() - 1);
+      const firstOfPrevMonth = new Date(lastOfPrevMonth.getFullYear(), lastOfPrevMonth.getMonth(), 1);
+      return { fromMillis: firstOfPrevMonth.getTime(), toMillis: endOfDay(lastOfPrevMonth.getTime()) };
+    },
+  },
+];
 
 const SORT_OPTIONS: RadioOption<Sort>[] = [
   { value: 'NEWEST_FIRST', label: 'Newest first' },
@@ -33,9 +73,18 @@ interface Props {
    *  matching dialog_admin_record_filter.xml's field order exactly. */
   operatorEmails?: string[];
   operatorFilterEmail?: string | null;
+  /** Admin-only, same gate as operatorEmails — a server-side syncedAt range applied in
+   *  fetchAllRecordsPage, not a client-side filter like sort/drug/alcohol above. */
+  dateRange?: DateRange | null;
   onCancel: () => void;
   onReset: () => void;
-  onApply: (sort: Sort, drugFilter: ResultOption, alcoholFilter: ResultOption, operatorFilterEmail?: string | null) => void;
+  onApply: (
+    sort: Sort,
+    drugFilter: ResultOption,
+    alcoholFilter: ResultOption,
+    operatorFilterEmail?: string | null,
+    dateRange?: DateRange | null
+  ) => void;
 }
 
 /** Mirrors dialog_history_filter.xml / dialog_admin_record_filter.xml + the shared filter dialog
@@ -47,6 +96,7 @@ export default function FilterModal({
   alcoholFilter,
   operatorEmails,
   operatorFilterEmail,
+  dateRange,
   onCancel,
   onReset,
   onApply,
@@ -54,10 +104,10 @@ export default function FilterModal({
   const [localSort, setLocalSort] = React.useState(sort);
   const [localDrug, setLocalDrug] = React.useState(drugFilter);
   const [localAlcohol, setLocalAlcohol] = React.useState(alcoholFilter);
-  const operatorFilterToLabel = (email: string | null | undefined) =>
-    email === ANONYMOUS_OPERATOR_FILTER ? ANONYMOUS_OPERATOR_LABEL : email ?? ALL_OPERATORS_LABEL;
+  const operatorFilterToLabel = (email: string | null | undefined) => email ?? ALL_OPERATORS_LABEL;
 
   const [localOperator, setLocalOperator] = React.useState(operatorFilterToLabel(operatorFilterEmail));
+  const [localDateRange, setLocalDateRange] = React.useState<DateRange | null>(dateRange ?? null);
 
   React.useEffect(() => {
     if (visible) {
@@ -65,8 +115,9 @@ export default function FilterModal({
       setLocalDrug(drugFilter);
       setLocalAlcohol(alcoholFilter);
       setLocalOperator(operatorFilterToLabel(operatorFilterEmail));
+      setLocalDateRange(dateRange ?? null);
     }
-  }, [visible, sort, drugFilter, alcoholFilter, operatorFilterEmail]);
+  }, [visible, sort, drugFilter, alcoholFilter, operatorFilterEmail, dateRange]);
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
@@ -80,7 +131,7 @@ export default function FilterModal({
                 <SelectField
                   label=""
                   value={localOperator}
-                  options={[ALL_OPERATORS_LABEL, ANONYMOUS_OPERATOR_LABEL, ...operatorEmails]}
+                  options={[ALL_OPERATORS_LABEL, ...operatorEmails]}
                   onChange={setLocalOperator}
                 />
               </>
@@ -102,6 +153,38 @@ export default function FilterModal({
               value={localAlcohol}
               onChange={setLocalAlcohol}
             />
+
+            {operatorEmails && (
+              <>
+                <Text style={styles.sectionLabel}>Filter by date</Text>
+                <View style={styles.presetRow}>
+                  {DATE_PRESETS.map((preset) => (
+                    <Pressable
+                      key={preset.label}
+                      style={styles.presetChip}
+                      onPress={() => setLocalDateRange(preset.range())}
+                    >
+                      <Text style={styles.presetChipText}>{preset.label}</Text>
+                    </Pressable>
+                  ))}
+                  {localDateRange && (
+                    <Pressable style={styles.presetChip} onPress={() => setLocalDateRange(null)}>
+                      <Text style={styles.presetChipText}>Clear</Text>
+                    </Pressable>
+                  )}
+                </View>
+                <DateField
+                  label="From"
+                  value={localDateRange?.fromMillis ?? null}
+                  onChange={(millis) => setLocalDateRange((r) => ({ fromMillis: startOfDay(millis), toMillis: r?.toMillis ?? null }))}
+                />
+                <DateField
+                  label="To"
+                  value={localDateRange?.toMillis ?? null}
+                  onChange={(millis) => setLocalDateRange((r) => ({ fromMillis: r?.fromMillis ?? null, toMillis: endOfDay(millis) }))}
+                />
+              </>
+            )}
           </ScrollView>
           <View style={styles.buttonRow}>
             <Button
@@ -109,6 +192,7 @@ export default function FilterModal({
               variant="text"
               onPress={() => {
                 setLocalOperator(ALL_OPERATORS_LABEL);
+                setLocalDateRange(null);
                 onReset();
               }}
               style={styles.resetButton}
@@ -126,10 +210,9 @@ export default function FilterModal({
                     operatorEmails
                       ? localOperator === ALL_OPERATORS_LABEL
                         ? null
-                        : localOperator === ANONYMOUS_OPERATOR_LABEL
-                          ? ANONYMOUS_OPERATOR_FILTER
-                          : localOperator
-                      : undefined
+                        : localOperator
+                      : undefined,
+                    operatorEmails ? localDateRange : undefined
                   )
                 }
                 style={styles.rightButton}
@@ -151,4 +234,13 @@ const styles = StyleSheet.create({
   resetButton: { paddingHorizontal: 4 },
   rightButtons: { flexDirection: 'row' },
   rightButton: { paddingHorizontal: 4, marginLeft: 8 },
+  presetRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
+  presetChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.brandPrimary,
+  },
+  presetChipText: { fontSize: 12, fontWeight: '600', color: colors.brandPrimary },
 });

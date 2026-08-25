@@ -96,6 +96,101 @@ var MIN_WIDTH_CONSISTENCY_RATIO = 0.5;
 // located) — deliberately lenient (only rejects clearly, badly out-of-focus frames) since this
 // constant has no real-photo calibration behind it either.
 var MIN_SHARPNESS = 3;
+// A real cassette strip has a handful of genuine lines (1 control + up to 3 substances); content
+// with MEANINGFULLY more distinct contrast peaks than that across the WHOLE strip height — not
+// just at the 4 expected row positions — is rejected outright, regardless of how strong any
+// individual peak's contrast is. Added after a real client-reported false positive: pointing the
+// scanner at a laptop screen showing a text-heavy app UI (not a cassette at all) still got
+// "confidently detected," because that content is genuinely sharp, in focus, and high-contrast at
+// whatever position the fixed template fraction happened to land on — it passed every existing
+// check (sharpness, row/width consistency, raw contrast) since none of them measure how BUSY the
+// strip is end-to-end, only whether contrast happens to appear at specific expected positions.
+//
+// Calibrated against an offline test harness (jpeg-js + this exact algorithm, run outside the
+// app) against 19 real device photos of genuine cassettes: an earlier version of this constant
+// (6, with no profile smoothing) rejected 7 of those as "too busy" — real photos are noisier
+// (JPEG compression, lighting gradients, membrane texture) than a clean line-count assumption
+// accounts for, producing far more raw pixel-level local maxima than expected even on a genuine
+// strip. Smoothing the profile first (countProfilePeaks) collapses that noise back down — with
+// smoothing, real photos in the test set topped out at 6 peaks even on the noisiest strip, so 6
+// is kept as the limit (not loosened further) since it's already confirmed safe against every
+// real photo tried. NOTE: this check alone did NOT catch the actual reported false positive (a
+// photo of a busy laptop screen) — the search simply found a different sub-window with a lower
+// peak count. See the SEARCH_SCALES-based veto in searchAndAnalyze for the check that actually
+// fixed that case; this one is kept as an additional, independently-useful layer.
+var MAX_PLAUSIBLE_LINE_PEAKS = 6;
+
+/** Simple centered moving average — collapses pixel-level noise (JPEG compression, lighting
+ *  micro-variation, membrane texture) that would otherwise register as its own "peak" in
+ *  countProfilePeaks, while a genuinely separate printed line (much wider than one noisy pixel)
+ *  survives smoothing intact. */
+function smoothProfile(profile, windowPx) {
+  var half = Math.floor(windowPx / 2);
+  var out = new Array(profile.length);
+  for (var i = 0; i < profile.length; i++) {
+    var sum = 0, count = 0;
+    for (var j = i - half; j <= i + half; j++) {
+      if (j >= 0 && j < profile.length) { sum += profile[j]; count++; }
+    }
+    out[i] = sum / count;
+  }
+  return out;
+}
+
+/** Counts distinct contrast peaks across the whole (smoothed) profile — see
+ *  MAX_PLAUSIBLE_LINE_PEAKS's own doc for why this runs over the full height rather than just the
+ *  4 expected line positions, and why the profile is smoothed first. Peaks within minGapPx of an
+ *  already-counted one are treated as the same line (so one genuinely wide/soft line isn't
+ *  double-counted), not as additional distinct lines. */
+function countProfilePeaks(profile, background) {
+  var smoothWindowPx = Math.max(3, Math.round(profile.length * 0.025));
+  var smoothed = smoothProfile(profile, smoothWindowPx);
+  var threshold = background + PRESENCE_THRESHOLD;
+  var minGapPx = Math.max(1, Math.round(profile.length * 0.03));
+  var peaks = 0, lastPeak = -Infinity;
+  for (var y = 1; y < smoothed.length - 1; y++) {
+    if (smoothed[y] >= threshold && smoothed[y] >= smoothed[y - 1] && smoothed[y] >= smoothed[y + 1] && (y - lastPeak) >= minGapPx) {
+      peaks++;
+      lastPeak = y;
+    }
+  }
+  return peaks;
+}
+
+// Global (whole-search-crop) busyness gate — see computeGlobalPeaks's own doc for why this exists
+// as a SEPARATE check from MAX_PLAUSIBLE_LINE_PEAKS/countProfilePeaks above, rather than relying
+// on that one alone. Calibrated the same way: offline test harness against 21 real photos (18
+// genuine cassettes + 3 real client-reported false positives — different busy scenes: a laptop
+// showing a code editor, a laptop showing a dense Google Images grid, and a third busy scene).
+// Real cassette photos topped out at 5 global peaks (even the noisiest/most textured one); all
+// three false positives measured 6, 8, and 9 — comfortably separated, with this limit sitting
+// exactly between the two groups rather than at either edge.
+var MAX_GLOBAL_PEAKS = 5;
+
+/** Counts contrast peaks across the WHOLE search crop (not one strip, not one candidate window)
+ *  — computed ONCE per capture attempt, before the 300-candidate search even runs, specifically so
+ *  there is no candidate left for the search to "escape" through. MAX_PLAUSIBLE_LINE_PEAKS
+ *  (countProfilePeaks) applies per-candidate, inside the search — real testing showed that a busy
+ *  photo has enough different candidate sub-windows at different scales/positions that SOME of
+ *  them dodge any single per-candidate check, since the search is specifically built to be
+ *  tolerant (try many candidates, keep whichever looks best) so a genuine cassette held at an
+ *  unusual distance/angle/position still gets found. That same tolerance is what a busy non-
+ *  cassette scene exploits. Evaluating busyness on the fixed input BEFORE the search runs, rather
+ *  than on whatever the search happens to select, closes that gap. */
+function computeGlobalPeaks(pixels, width, height) {
+  var profile = new Array(height);
+  for (var y = 0; y < height; y++) {
+    var sum = 0;
+    for (var x = 0; x < width; x++) {
+      var idx = (y * width + x) * 4;
+      var minChannel = Math.min(pixels[idx], pixels[idx + 1], pixels[idx + 2]);
+      sum += (255 - minChannel);
+    }
+    profile[y] = sum / width;
+  }
+  var background = median(profile);
+  return countProfilePeaks(profile, background);
+}
 
 // Rotation angles (degrees) and window scales searchAndAnalyze() tries, in every combination, to
 // find the cassette regardless of exactly how the operator is holding it — see that function's
@@ -265,10 +360,16 @@ function analyzeStrip(pixels, width, height, leftFrac, rightFrac, substances) {
   var profile = buildVerticalDarknessProfile(pixels, width, topPx, bottomPx, leftPx, rightPx);
   var background = median(profile);
 
-  var control = detectLine(profile, ROW_CENTERS_Y[0], background);
+  // Hard veto, not a confidence downgrade — text/busy content can hit maximal raw contrast just
+  // as easily as a real line does, so lowering confidence alone wouldn't stop it; see
+  // MAX_PLAUSIBLE_LINE_PEAKS's own doc.
+  var tooBusy = countProfilePeaks(profile, background) > MAX_PLAUSIBLE_LINE_PEAKS;
+  var NOT_PRESENT = { present: false, confidence: 0 };
+
+  var control = tooBusy ? NOT_PRESENT : detectLine(profile, ROW_CENTERS_Y[0], background);
   var substanceReadings = {};
   for (var i = 0; i < substances.length; i++) {
-    substanceReadings[substances[i]] = detectLine(profile, ROW_CENTERS_Y[i + 1], background);
+    substanceReadings[substances[i]] = tooBusy ? NOT_PRESENT : detectLine(profile, ROW_CENTERS_Y[i + 1], background);
   }
   // Whether this strip's own membrane window was actually located by the lightness search, as
   // opposed to the naive fixed-fraction fallback used when nothing stood out — see
@@ -437,16 +538,44 @@ function searchAndAnalyze(searchCanvas) {
 
         var candPixels = extractRegion(fullPixels, w, candLeft, candTop, candWidth, candHeight);
         var reading = analyze(candPixels, candWidth, candHeight);
+        // Hard veto: the largest search scale assumes the cassette fills nearly the whole search
+        // crop — genuinely real cassettes held that close/large are easy for the column/row
+        // search to geometrically locate (strong membrane-vs-surroundings contrast at that size).
+        // Neither strip locating anything at all while still claiming confident line contrast is
+        // exactly the pattern a real client-reported false positive showed: pointing the scanner
+        // at a laptop screen got "confidently detected" via this specific combination — the
+        // fallback path (meant for real cassettes at smaller scales where lighting/background
+        // tone legitimately defeats the geometric search — see MIN_CONTROL_CONFIDENCE_FALLBACK's
+        // own doc) has no business also covering "the whole frame is assumed to be cassette."
+        // Verified via an offline test harness against 19 real device photos of genuine cassettes
+        // (including the actual false-positive photo): this exact rule fixes that false positive
+        // and does not reject a single one of the 19 real photos — unlike two earlier attempts
+        // (a stricter peak-density check, and banning the fallback path outright) which each
+        // either failed to catch the real false positive or broke multiple genuine reads.
+        if (SEARCH_SCALES[s] >= 0.8 && !reading.leftStrip.located && !reading.rightStrip.located) {
+          reading.leftStrip.control = { present: false, confidence: 0 };
+          reading.rightStrip.control = { present: false, confidence: 0 };
+        }
         var score = scoreReading(reading);
         if (score > bestScore) {
           bestScore = score;
-          best = { reading: reading };
+          // scale is carried alongside the winning reading purely as a DISTANCE signal for the RN
+          // side's on-screen guidance ("move closer" / "move back a little") — see
+          // DrugCassetteScanScreen's own doc on why this is only ever trusted when bestScore > -1
+          // (both control lines actually read present somewhere), never used to guess distance
+          // from a candidate that didn't even clear that bar, which would just be guessing off
+          // noise. A small scale winning means the best-scoring candidate was a small window
+          // relative to the search crop — consistent with the cassette appearing far away (or,
+          // sharing the same signal, held at an angle/position needing to move closer); a large
+          // scale winning while still not confidently valid is consistent with it being too close
+          // to read the lines cleanly (e.g. cut off, or filling more than the search crop allows).
+          best = { reading: reading, scale: SEARCH_SCALES[s] };
         }
       }
     }
   }
 
-  return best;
+  return { best: best, bestScore: bestScore };
 }
 
 /**
@@ -481,8 +610,24 @@ function cropAndAnalyze(img, frac) {
   var searchCtx = searchCanvas.getContext('2d');
   searchCtx.drawImage(fullCanvas, left, top, searchWidth, searchHeight, 0, 0, searchWidth, searchHeight);
 
-  var best = searchAndAnalyze(searchCanvas);
-  return { reading: best ? best.reading : null };
+  // Global busyness gate — see computeGlobalPeaks's own doc. Checked BEFORE running the
+  // 300-candidate search at all: if the whole crop is too busy, no candidate result from it can
+  // be trusted regardless of what the search would otherwise pick.
+  var searchPixels = searchCtx.getImageData(0, 0, searchWidth, searchHeight).data;
+  if (computeGlobalPeaks(searchPixels, searchWidth, searchHeight) > MAX_GLOBAL_PEAKS) {
+    return { reading: null, matchedScale: null, bestScore: -1 };
+  }
+
+  var result = searchAndAnalyze(searchCanvas);
+  var best = result.best;
+  return {
+    reading: best ? best.reading : null,
+    // Only meaningful (see searchAndAnalyze's own doc) when bestScore > -1 — the RN side checks
+    // that itself rather than trusting matchedScale's mere presence, since best is always set to
+    // SOME candidate even when nothing scored above -1.
+    matchedScale: best ? best.scale : null,
+    bestScore: result.bestScore
+  };
 }
 
 function handleMessage(event) {
@@ -493,7 +638,13 @@ function handleMessage(event) {
     img.onload = function () {
       try {
         var out = cropAndAnalyze(img, data.searchFraction);
-        post({ type: 'result', requestId: data.requestId, reading: out.reading });
+        post({
+          type: 'result',
+          requestId: data.requestId,
+          reading: out.reading,
+          matchedScale: out.matchedScale,
+          bestScore: out.bestScore
+        });
       } catch (e) {
         post({ type: 'error', requestId: data.requestId, message: String(e) });
       }

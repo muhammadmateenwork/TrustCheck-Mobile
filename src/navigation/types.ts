@@ -24,8 +24,11 @@ export type RootStackParamList = {
    *  workflow record by DrugCassetteScanScreen before navigating back, same as the native
    *  fragment does, so they don't need to round-trip through params too). */
   DrugTestPicture: { photoPath?: string; readValid?: boolean; detectionAttempted?: boolean; scanAt?: number } | undefined;
-  /** Modal camera screen — equivalent of the native DrugCassetteScanActivity. */
-  DrugCassetteScan: undefined;
+  /** Modal camera screen — equivalent of the native DrugCassetteScanActivity. `mode` is chosen on
+   *  DrugTestPictureScreen ("Scan Kit" vs "Take Picture" — two separate buttons there, see that
+   *  screen's own doc) and passed in here; this screen no longer asks the operator to choose
+   *  again once the camera is open, it just does the one thing already chosen. */
+  DrugCassetteScan: { mode: 'scan' | 'manual' };
   DrugResult: undefined;
   AlcoholTest: undefined;
   FinalSignOff: undefined;

@@ -12,6 +12,7 @@ import SignaturePad, { SignaturePadHandle } from '../components/SignaturePad';
 import PhotoCaptureBox from '../components/PhotoCaptureBox';
 import Button from '../components/Button';
 import FormSection from '../components/FormSection';
+import WizardHeader from '../components/WizardHeader';
 import KeyboardAvoidingScreen from '../components/KeyboardAvoidingScreen';
 import { newMediaFilePath } from '../services/fileStorage';
 import { colors } from '../theme';
@@ -133,6 +134,8 @@ export default function DonorDataScreen({ navigation }: Props) {
       scrollEnabled={scrollEnabled}
       keyboardShouldPersistTaps="handled"
     >
+      <WizardHeader title="Donor Data" step={1} />
+
       <FormSection title="Initial Consent">
         <Text style={styles.bodyText}>{INITIAL_CONSENT_TEXT}</Text>
         <Checkbox checked={initialConsent} onChange={setInitialConsent} label="Informed consent conducted and understood *" />

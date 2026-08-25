@@ -8,6 +8,18 @@ import { GuideRectFraction } from './CassetteGuideOverlay';
 
 export interface CropAndAnalyzeResult {
   reading: CassetteReading | null;
+  /** Which SEARCH_SCALES value the winning candidate used — a rough distance signal (small scale
+   *  ≈ cassette appears small/far, large scale ≈ appears large/close). Only trust this when
+   *  bestScore > -1 (see that field's own doc) — best is always set to SOME candidate even when
+   *  nothing scored above -1, so matchedScale being non-null on its own doesn't mean anything was
+   *  actually found. */
+  matchedScale: number | null;
+  /** -1 (or lower, technically -Infinity if literally no candidate was ever scored) means not
+   *  even one of the ~60 candidates tried this attempt had both control lines read as present —
+   *  i.e. no real signal at all, not even a rough one. Anything above -1 means at least a
+   *  plausible line pattern was found somewhere, worth giving distance feedback on via
+   *  matchedScale, even if it didn't clear isConfidentlyDetected's actual accept bar. */
+  bestScore: number;
 }
 
 export interface CassetteAnalyzerHandle {
@@ -25,7 +37,7 @@ export interface CassetteAnalyzerHandle {
 }
 
 interface PendingRequest {
-  resolve: (result: { reading: CassetteReading | null }) => void;
+  resolve: (result: CropAndAnalyzeResult) => void;
 }
 
 let requestCounter = 0;
@@ -42,15 +54,17 @@ const CassetteAnalyzerBridge = forwardRef<CassetteAnalyzerHandle>((_props, ref) 
         type: string;
         requestId: number | null;
         reading?: CassetteReading;
+        matchedScale?: number | null;
+        bestScore?: number;
       };
       if (data.requestId == null) return;
       const request = pending.current.get(data.requestId);
       if (!request) return;
       pending.current.delete(data.requestId);
       if (data.type === 'result') {
-        request.resolve({ reading: data.reading ?? null });
+        request.resolve({ reading: data.reading ?? null, matchedScale: data.matchedScale ?? null, bestScore: data.bestScore ?? -1 });
       } else {
-        request.resolve({ reading: null });
+        request.resolve({ reading: null, matchedScale: null, bestScore: -1 });
       }
     } catch {
       // Malformed message — nothing to resolve against.
@@ -62,7 +76,7 @@ const CassetteAnalyzerBridge = forwardRef<CassetteAnalyzerHandle>((_props, ref) 
       try {
         const base64 = await FileSystem.readAsStringAsync(localUri, { encoding: FileSystem.EncodingType.Base64 });
         const requestId = ++requestCounter;
-        const { reading } = await new Promise<{ reading: CassetteReading | null }>((resolve) => {
+        return await new Promise<CropAndAnalyzeResult>((resolve) => {
           pending.current.set(requestId, { resolve });
           webViewRef.current?.postMessage(
             JSON.stringify({
@@ -79,14 +93,12 @@ const CassetteAnalyzerBridge = forwardRef<CassetteAnalyzerHandle>((_props, ref) 
           setTimeout(() => {
             if (pending.current.has(requestId)) {
               pending.current.delete(requestId);
-              resolve({ reading: null });
+              resolve({ reading: null, matchedScale: null, bestScore: -1 });
             }
           }, 15000);
         });
-
-        return { reading };
       } catch {
-        return { reading: null };
+        return { reading: null, matchedScale: null, bestScore: -1 };
       }
     },
   }));

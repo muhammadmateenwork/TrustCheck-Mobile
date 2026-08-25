@@ -11,6 +11,7 @@ import { saveRecord } from '../services/recordRepository';
 import { generatePdf, getOrGeneratePdf, generatePdfToTempFile, suggestFileName } from '../services/pdfReportGenerator';
 import { syncRecord } from '../services/cloudSync';
 import { sendReportEmail } from '../services/cloudFunctionsEmailSender';
+import { firebaseAuth } from '../services/firebase';
 import { formatDateTime } from '../utils/dateUtils';
 import TextField from '../components/TextField';
 import Button from '../components/Button';
@@ -261,18 +262,22 @@ export default function SummaryScreen({ navigation }: Props) {
           </View>
 
           <Button title="Open PDF" variant="outlined" icon="picture-as-pdf" onPress={onOpenPdf} style={styles.savedButton} />
-          <Button
-            title={sendingEmail ? 'Sending…' : 'Send Email'}
-            icon="email"
-            onPress={onSendEmail}
-            loading={sendingEmail}
-            style={styles.savedButton}
-          />
-          {sendingEmail && (
-            <View style={styles.emailProgressRow}>
-              <ActivityIndicator size="small" color={colors.brandPrimary} />
-              <Text style={styles.emailProgressText}>Sending email…</Text>
-            </View>
+          {!firebaseAuth.currentUser?.isAnonymous && (
+            <>
+              <Button
+                title={sendingEmail ? 'Sending…' : 'Send Email'}
+                icon="email"
+                onPress={onSendEmail}
+                loading={sendingEmail}
+                style={styles.savedButton}
+              />
+              {sendingEmail && (
+                <View style={styles.emailProgressRow}>
+                  <ActivityIndicator size="small" color={colors.brandPrimary} />
+                  <Text style={styles.emailProgressText}>Sending email…</Text>
+                </View>
+              )}
+            </>
           )}
 
           <Button title="Back to Home" variant="text" onPress={onBackToHome} style={styles.backToHomeButton} />

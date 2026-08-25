@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, StyleSheet } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { View, StyleSheet, Animated, Easing } from 'react-native';
 import { GUIDE_ASPECT_RATIO } from '../models/CassetteTemplate';
 import { colors } from '../theme';
 
@@ -71,17 +71,65 @@ function clamp01(v: number): number {
 
 /** Draws the alignment guide the operator frames the cassette's result window within — a scrim
  *  over everything except a cutout rectangle, with corner brackets. Mirrors
- *  CassetteGuideOverlayView.java's onDraw(). Must be rendered as an absolutely-positioned
- *  overlay exactly matching the CameraView's own bounds (see DrugCassetteScanScreen), which is
- *  what makes `frac` (from computeGuideRectFraction) apply identically to both what's drawn here
- *  and what's cropped out of the captured photo afterward. */
-export default function CassetteGuideOverlay({ width, height }: { width: number; height: number }) {
+ *  CassetteGuideOverlayView.java's onDraw(), plus one thing with no native equivalent: when
+ *  `scanning` is true, an animated horizontal line sweeps up and down inside the guide box and
+ *  its border pulses the brand accent color — the same visual language as a barcode/QR scanner,
+ *  added specifically so actively auto-detecting reads as "the app is scanning" rather than
+ *  looking idle while it silently takes and analyzes photos in the background (see
+ *  DrugCassetteScanScreen's own doc — this was a direct client request: the detection mechanism
+ *  underneath is unchanged, this is purely the on-screen feedback while it runs). Must be
+ *  rendered as an absolutely-positioned overlay exactly matching the CameraView's own bounds (see
+ *  DrugCassetteScanScreen), which is what makes `frac` (from computeGuideRectFraction) apply
+ *  identically to both what's drawn here and what's cropped out of the captured photo afterward.
+ */
+export default function CassetteGuideOverlay({
+  width,
+  height,
+  scanning,
+}: {
+  width: number;
+  height: number;
+  scanning?: boolean;
+}) {
   const frac = computeGuideRectFraction();
   const guideLeft = frac.left * width;
   const guideTop = frac.top * height;
   const guideWidth = (frac.right - frac.left) * width;
   const guideHeight = (frac.bottom - frac.top) * height;
   const bracket = Math.min(guideWidth, guideHeight) * 0.18;
+
+  const sweep = useRef(new Animated.Value(0)).current;
+  const pulse = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (!scanning) {
+      sweep.stopAnimation();
+      pulse.stopAnimation();
+      return;
+    }
+    sweep.setValue(0);
+    const sweepLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(sweep, { toValue: 1, duration: 1600, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(sweep, { toValue: 0, duration: 1600, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      ])
+    );
+    const pulseLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 900, easing: Easing.inOut(Easing.ease), useNativeDriver: false }),
+        Animated.timing(pulse, { toValue: 0, duration: 900, easing: Easing.inOut(Easing.ease), useNativeDriver: false }),
+      ])
+    );
+    sweepLoop.start();
+    pulseLoop.start();
+    return () => {
+      sweepLoop.stop();
+      pulseLoop.stop();
+    };
+  }, [scanning, sweep, pulse]);
+
+  const scanLineTranslateY = sweep.interpolate({ inputRange: [0, 1], outputRange: [0, Math.max(0, guideHeight - 3)] });
+  const borderColor = pulse.interpolate({ inputRange: [0, 1], outputRange: [colors.white, colors.brandAccent] });
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
@@ -90,7 +138,19 @@ export default function CassetteGuideOverlay({ width, height }: { width: number;
       <View style={[styles.scrim, { top: guideTop, left: 0, width: guideLeft, height: guideHeight }]} />
       <View style={[styles.scrim, { top: guideTop, left: guideLeft + guideWidth, right: 0, height: guideHeight }]} />
 
-      <View style={[styles.border, { left: guideLeft, top: guideTop, width: guideWidth, height: guideHeight }]} />
+      <Animated.View
+        style={[
+          styles.border,
+          { left: guideLeft, top: guideTop, width: guideWidth, height: guideHeight },
+          scanning && { borderColor },
+        ]}
+      />
+
+      {scanning && (
+        <View style={[styles.scanLineClip, { left: guideLeft, top: guideTop, width: guideWidth, height: guideHeight }]}>
+          <Animated.View style={[styles.scanLine, { width: guideWidth, transform: [{ translateY: scanLineTranslateY }] }]} />
+        </View>
+      )}
 
       {/* Corner brackets */}
       <View style={[styles.bracketH, { left: guideLeft, top: guideTop, width: bracket }]} />
@@ -112,6 +172,16 @@ export default function CassetteGuideOverlay({ width, height }: { width: number;
 const styles = StyleSheet.create({
   scrim: { position: 'absolute', backgroundColor: 'rgba(0,0,0,0.67)' },
   border: { position: 'absolute', borderWidth: 1.5, borderColor: colors.white },
+  scanLineClip: { position: 'absolute', overflow: 'hidden' },
+  scanLine: {
+    position: 'absolute',
+    height: 3,
+    backgroundColor: colors.brandAccent,
+    shadowColor: colors.brandAccent,
+    shadowOpacity: 0.9,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 0 },
+  },
   bracketH: { position: 'absolute', height: 4, backgroundColor: colors.brandAccent, borderRadius: 2 },
   bracketV: { position: 'absolute', width: 4, backgroundColor: colors.brandAccent, borderRadius: 2 },
 });

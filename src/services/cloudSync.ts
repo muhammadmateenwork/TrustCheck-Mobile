@@ -22,27 +22,21 @@ import { TestRecord, STATUS_COMPLETED } from '../models/TestRecord';
 import { saveRecord, loadRecord } from './recordRepository';
 import { listRecordJsonFiles } from './fileStorage';
 
-/** Sentinel passed as `operatorEmailFilter` to fetchAllRecordsPage/watchNewestRecordId to mean
- *  "only records with no operatorEmail at all" (i.e. synced from a skipped-login/anonymous
- *  session — see syncRecord's own doc) — distinct from `null`, which means "no filter, show
- *  every operator." Not a real email, so it can't collide with an actual operator's filter. */
-export const ANONYMOUS_OPERATOR_FILTER = '__anonymous__';
-
 /**
  * Best-effort background sync of a completed test record to Firestore + its photos/signatures to
- * Cloud Storage — mirrors CloudSyncRepository.java in spirit, with one deliberate deviation: the
- * native app skips cloud sync entirely for a skipped-login (anonymous) session — completed tests
- * done that way never reach the Admin panel there. This app syncs them too, so every completed
- * test is visible to Admin regardless of whether the operator signed in. An anonymous Firebase
- * Auth session still has a real, stable `request.auth.uid` (see firestore.rules' create rule,
- * which only requires `operatorUid == request.auth.uid` — no non-anonymous check), so no backend
- * rule change was needed for this. The one thing that stays operator-only is the operator PROFILE
- * (name/ID/phone prefill) — see OperatorConsentScreen's own doc — since that's tied to a real,
- * reusable identity in a way a one-off anonymous session isn't.
+ * Cloud Storage — mirrors CloudSyncRepository.java: a skipped-login (anonymous) session never
+ * syncs at all, matching native exactly. This was briefly changed to sync anonymous sessions too
+ * (per an earlier explicit ask), then reverted back to native's original behavior (per a later,
+ * more specific explicit ask): anonymous test data must stay purely local-only — never reach
+ * Firestore/Cloud Storage, never appear in the Admin panel, never be able to email a report (see
+ * SummaryScreen's own doc on why the Send Email button is hidden for anonymous sessions). The one
+ * thing that stays operator-only regardless is the operator PROFILE (name/ID/phone prefill) — see
+ * OperatorConsentScreen's own doc — since that's tied to a real, reusable identity in a way a
+ * one-off anonymous session isn't.
  *
  * Purely additive on top of this app's local-first storage (see recordRepository.ts): the donor
- * test workflow, PDF generation and email already succeed or fail independently of this, entirely
- * from the local copy. A sync failure here is logged and otherwise silent by default; it never
+ * test workflow and PDF generation already succeed or fail independently of this, entirely from
+ * the local copy. A sync failure here is logged and otherwise silent by default; it never
  * surfaces as an error to the operator unless the caller passes an onComplete callback (see
  * summarySave screen, which waits on it with a timeout — see that screen's own doc for why).
  */
@@ -53,8 +47,8 @@ export async function syncRecord(
 ): Promise<void> {
   const user = firebaseAuth.currentUser;
   console.log('[cloudSync] syncRecord: user =', user ? user.uid : null, 'anonymous =', user?.isAnonymous);
-  if (!user) {
-    console.log('[cloudSync] syncRecord: no signed-in user at all, skipping');
+  if (!user || user.isAnonymous) {
+    console.log('[cloudSync] syncRecord: no signed-in (non-anonymous) user, skipping');
     onComplete?.(false);
     return;
   }
@@ -175,7 +169,7 @@ async function uploadLocalFile(localUri: string, storagePath: string): Promise<s
  */
 export async function retryPendingSyncs(): Promise<void> {
   const user = firebaseAuth.currentUser;
-  if (!user) return;
+  if (!user || user.isAnonymous) return;
 
   const paths = await listRecordJsonFiles();
   for (const path of paths) {
@@ -203,21 +197,38 @@ export interface RecordsPage {
   hasMore: boolean;
 }
 
+/** Inclusive [from, to] range, both as millis-since-epoch (matching how `syncedAt` is actually
+ *  stored — see syncRecord's own `syncedAt: Date.now()`, a plain number, not a Firestore
+ *  Timestamp) — used by Admin's date-range/month report filter. Either bound may be omitted. */
+export interface DateRange {
+  fromMillis: number | null;
+  toMillis: number | null;
+}
+
 /**
  * Admin panel's Records list — server-side paginated, newest first, optionally filtered to one
- * operator's email. Mirrors CloudSyncRepository#fetchAllRecordsPage.
+ * operator's email and/or a syncedAt date range. Mirrors CloudSyncRepository#fetchAllRecordsPage,
+ * with the date-range filter added on top (no native equivalent — Admin-only bulk report
+ * download feature, see reportExport.ts). The range filter is on the SAME field the query already
+ * orders by (syncedAt), which Firestore can serve from the same index already required for the
+ * operatorEmail-equality + syncedAt-orderBy combination — no separate composite index needed.
  */
 export async function fetchAllRecordsPage(
   cursor: QueryDocumentSnapshot<DocumentData> | null,
   operatorEmailFilter: string | null,
-  pageSize: number
+  pageSize: number,
+  dateRange?: DateRange | null
 ): Promise<RecordsPage> {
   const testRecordsRef = collection(firestore, 'testRecords');
   const clauses = [orderBy('syncedAt', 'desc')];
-  if (operatorEmailFilter === ANONYMOUS_OPERATOR_FILTER) {
-    clauses.push(where('operatorEmail', '==', null) as never);
-  } else if (operatorEmailFilter) {
+  if (operatorEmailFilter) {
     clauses.push(where('operatorEmail', '==', operatorEmailFilter) as never);
+  }
+  if (dateRange?.fromMillis != null) {
+    clauses.push(where('syncedAt', '>=', dateRange.fromMillis) as never);
+  }
+  if (dateRange?.toMillis != null) {
+    clauses.push(where('syncedAt', '<=', dateRange.toMillis) as never);
   }
   clauses.push(limit(pageSize) as never);
   if (cursor) clauses.push(startAfter(cursor) as never);
@@ -253,9 +264,7 @@ export function watchNewestRecordId(
 ): Unsubscribe {
   const testRecordsRef = collection(firestore, 'testRecords');
   const clauses = [orderBy('syncedAt', 'desc'), limit(1)];
-  if (operatorEmailFilter === ANONYMOUS_OPERATOR_FILTER) {
-    clauses.splice(1, 0, where('operatorEmail', '==', null) as never);
-  } else if (operatorEmailFilter) {
+  if (operatorEmailFilter) {
     clauses.splice(1, 0, where('operatorEmail', '==', operatorEmailFilter) as never);
   }
   const q = query(testRecordsRef, ...(clauses as never[]));

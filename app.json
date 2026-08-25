@@ -17,7 +17,13 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.anonymous.TrustCheckMobile"
+      "package": "com.anonymous.TrustCheckMobile",
+      "permissions": [
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_DATA_SYNC",
+        "android.permission.WAKE_LOCK",
+        "android.permission.POST_NOTIFICATIONS"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -33,7 +39,8 @@
           "resizeMode": "contain",
           "backgroundColor": "#0B4F6C"
         }
-      ]
+      ],
+      "./plugins/withBackgroundActionsForegroundServiceType.js"
     ],
     "extra": {
       "eas": {

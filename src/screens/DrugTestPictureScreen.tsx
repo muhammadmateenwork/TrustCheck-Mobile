@@ -7,6 +7,7 @@ import { RootStackParamList } from '../navigation/types';
 import { useWorkflow } from '../hooks/WorkflowContext';
 import Button from '../components/Button';
 import FormSection from '../components/FormSection';
+import WizardHeader from '../components/WizardHeader';
 import { colors } from '../theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'DrugTestPicture'>;
@@ -70,14 +71,21 @@ export default function DrugTestPictureScreen({ navigation, route }: Props) {
   // The moment right before backgrounding for the cassette camera flow is the highest-risk one
   // for losing whatever hasn't been saved yet — that screen holds a live camera preview and runs
   // repeated capture+analysis passes, peak memory pressure for the OS to reclaim this process at.
-  const onTakePhoto = async () => {
+  // The mode choice (scan vs. manual) happens here, before the camera even opens — the camera
+  // screen itself no longer asks again (see DrugCassetteScan's own param doc).
+  const onScanKit = async () => {
     await saveDraft();
-    navigation.navigate('DrugCassetteScan');
+    navigation.navigate('DrugCassetteScan', { mode: 'scan' });
+  };
+
+  const onTakePicture = async () => {
+    await saveDraft();
+    navigation.navigate('DrugCassetteScan', { mode: 'manual' });
   };
 
   return (
     <ScrollView contentContainerStyle={[styles.container, { paddingBottom: 20 + insets.bottom }]}>
-      <Text style={styles.title}>Drug Test</Text>
+      <WizardHeader title="Drug Test" step={5} />
       <Text style={styles.instruction}>Take a photo of the drug test kit result.</Text>
 
       {notice && <Text style={styles.notice}>{notice}</Text>}
@@ -101,13 +109,21 @@ export default function DrugTestPictureScreen({ navigation, route }: Props) {
           </Text>
         )}
 
-        <Button
-          title={photoPath ? 'Rescan Kit' : 'Scan Kit'}
-          icon="camera-alt"
-          variant="outlined"
-          onPress={() => void onTakePhoto()}
-          style={styles.takePhotoButton}
-        />
+        <View style={styles.actionRow}>
+          <Button
+            title={photoPath ? 'Rescan Kit' : 'Scan Kit'}
+            icon="biotech"
+            onPress={() => void onScanKit()}
+            style={styles.actionButton}
+          />
+          <Button
+            title={photoPath ? 'Retake Picture' : 'Take Picture'}
+            icon="camera-alt"
+            variant="outlined"
+            onPress={() => void onTakePicture()}
+            style={styles.actionButton}
+          />
+        </View>
       </FormSection>
 
       <View style={styles.bottomBar}>
@@ -126,7 +142,6 @@ export default function DrugTestPictureScreen({ navigation, route }: Props) {
 
 const styles = StyleSheet.create({
   container: { padding: 20, backgroundColor: colors.background },
-  title: { fontSize: 22, fontWeight: '700', color: colors.textPrimary, marginBottom: 8 },
   instruction: { fontSize: 13, color: colors.textSecondary, marginBottom: 16 },
   notice: { fontSize: 12, color: colors.brandAccent, marginBottom: 12 },
   photoBox: {
@@ -142,7 +157,8 @@ const styles = StyleSheet.create({
   photo: { width: '100%', height: '100%' },
   emptyText: { color: colors.textSecondary, fontSize: 13, marginTop: 8 },
   failedText: { fontSize: 14, color: colors.brandDanger, marginTop: 12 },
-  takePhotoButton: { marginTop: 16 },
+  actionRow: { flexDirection: 'row', gap: 12, marginTop: 16 },
+  actionButton: { flex: 1 },
   bottomBar: { flexDirection: 'row', gap: 12, marginTop: 24 },
   backButton: { flex: 1 },
   nextButton: { flex: 1 },

@@ -35,9 +35,12 @@ import {
   fetchAllRecordsPage,
   watchNewestRecordId,
   loadRecordForAdmin,
+  DateRange,
 } from '../services/cloudSync';
 import { getOrGeneratePdf } from '../services/pdfReportGenerator';
 import { saveRecord } from '../services/recordRepository';
+import { enqueueDownload, useDownloadJobs } from '../services/downloadQueue';
+import DownloadsPanel from '../components/DownloadsPanel';
 import { Operator } from '../models/Operator';
 import { TestRecord, donorFullName } from '../models/TestRecord';
 import { HistoryFilter, createHistoryFilter, applyHistoryFilter, isDefaultFilter } from '../models/HistoryFilter';
@@ -158,12 +161,22 @@ export default function AdminScreen({ navigation }: Props) {
   const [mediaUrlsByRecordId, setMediaUrlsByRecordId] = useState<Record<string, Record<string, string>>>({});
   const [recordFilter, setRecordFilter] = useState<HistoryFilter>(createHistoryFilter());
   const [operatorFilterEmail, setOperatorFilterEmail] = useState<string | null>(null);
+  const [dateRange, setDateRange] = useState<DateRange | null>(null);
   const [filterVisible, setFilterVisible] = useState(false);
   const [loadingRecords, setLoadingRecords] = useState(false);
   const [refreshingRecords, setRefreshingRecords] = useState(false);
   const [hasMoreRecords, setHasMoreRecords] = useState(true);
   const [openingRecord, setOpeningRecord] = useState(false);
   const [openProgress, setOpenProgress] = useState(0);
+
+  // ---- Bulk report download (select mode) ----
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [downloadsVisible, setDownloadsVisible] = useState(false);
+  const downloadJobs = useDownloadJobs();
+  const activeDownloadCount = downloadJobs.filter(
+    (j) => j.status === 'queued' || j.status === 'running' || j.status === 'paused'
+  ).length;
 
   const recordsCursor = useRef<QueryDocumentSnapshot<DocumentData> | null>(null);
   const isLoadingRecordsRef = useRef(false);
@@ -184,7 +197,12 @@ export default function AdminScreen({ navigation }: Props) {
       isLoadingRecordsRef.current = true;
       setLoadingRecords(true);
       try {
-        const page = await fetchAllRecordsPage(isFirstPage ? null : recordsCursor.current, operatorFilterEmail, RECORDS_PAGE_SIZE);
+        const page = await fetchAllRecordsPage(
+          isFirstPage ? null : recordsCursor.current,
+          operatorFilterEmail,
+          RECORDS_PAGE_SIZE,
+          dateRange
+        );
         recordsCursor.current = page.cursor;
         hasMoreRecordsRef.current = page.hasMore;
         setHasMoreRecords(page.hasMore);
@@ -201,7 +219,7 @@ export default function AdminScreen({ navigation }: Props) {
         setLoadingRecords(false);
       }
     },
-    [operatorFilterEmail]
+    [operatorFilterEmail, dateRange]
   );
 
   const resetAndLoadRecords = useCallback(() => {
@@ -256,7 +274,7 @@ export default function AdminScreen({ navigation }: Props) {
     resetAndLoadRecords();
     void loadRecordsPage(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [operatorFilterEmail]);
+  }, [operatorFilterEmail, dateRange]);
 
   const visibleRecords = applyHistoryFilter(recordFilter, loadedRecords);
 
@@ -297,6 +315,40 @@ export default function AdminScreen({ navigation }: Props) {
     setOpeningRecord(false);
   };
 
+  const toggleSelectionMode = () => {
+    setSelectionMode((v) => !v);
+    setSelectedIds(new Set());
+  };
+
+  const toggleSelectRecord = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  // Only the records actually loaded/visible under the current filters can be selected — bulk
+  // download works off exactly what's on screen, same records the operator/date/result filters
+  // already narrowed down, not some hidden "everything on the server" superset.
+  const selectAllVisible = () => {
+    setSelectedIds(new Set(visibleRecords.map((r) => r.id)));
+  };
+
+  // Enqueues and returns immediately — the job runs via downloadQueue.ts (queued, one at a time,
+  // backed by a real background service), so this never blocks the UI. Progress/pause/cancel/share
+  // all live in the Downloads panel from here on, not this screen.
+  const downloadSelected = () => {
+    const selected = visibleRecords.filter((r) => selectedIds.has(r.id));
+    if (selected.length === 0) return;
+    enqueueDownload(selected, mediaUrlsByRecordId);
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+    setDownloadsVisible(true);
+    showToast(`Added to downloads — ${selected.length === 1 ? '1 report' : `${selected.length} reports`} queued`, 'success');
+  };
+
   const confirmSignOut = () => {
     setMenuVisible(false);
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
@@ -324,9 +376,19 @@ export default function AdminScreen({ navigation }: Props) {
     <View style={styles.container}>
       <View style={styles.topBar}>
         <Text style={styles.title}>Admin</Text>
-        <Pressable onPress={() => setMenuVisible(true)} style={styles.menuButton}>
-          <MaterialIcons name="more-vert" size={24} color={colors.white} />
-        </Pressable>
+        <View style={styles.topBarActions}>
+          <Pressable onPress={() => setDownloadsVisible(true)} style={styles.menuButton} hitSlop={4}>
+            <MaterialIcons name="file-download" size={24} color={colors.white} />
+            {activeDownloadCount > 0 && (
+              <View style={styles.downloadBadge}>
+                <Text style={styles.downloadBadgeText}>{activeDownloadCount}</Text>
+              </View>
+            )}
+          </Pressable>
+          <Pressable onPress={() => setMenuVisible(true)} style={styles.menuButton}>
+            <MaterialIcons name="more-vert" size={24} color={colors.white} />
+          </Pressable>
+        </View>
       </View>
 
       <View style={styles.tabBar}>
@@ -409,16 +471,39 @@ export default function AdminScreen({ navigation }: Props) {
             <Pressable onPress={() => setFilterVisible(true)} style={styles.iconButton} hitSlop={8}>
               <MaterialIcons name="filter-list" size={22} color={colors.brandPrimary} />
             </Pressable>
+            <Pressable onPress={toggleSelectionMode} style={styles.iconButton} hitSlop={8}>
+              <MaterialIcons
+                name={selectionMode ? 'close' : 'playlist-add-check'}
+                size={22}
+                color={colors.brandPrimary}
+              />
+            </Pressable>
           </View>
-          {(!isDefaultFilter(recordFilter) || operatorFilterEmail) && (
+          {(!isDefaultFilter(recordFilter) || operatorFilterEmail || dateRange) && (
             <Text style={styles.activeFilters}>Filters active — tap the icon to change</Text>
+          )}
+          {selectionMode && (
+            <View style={styles.selectionBar}>
+              <Text style={styles.selectionCount}>{selectedIds.size} selected</Text>
+              <Pressable onPress={selectAllVisible} hitSlop={8}>
+                <Text style={styles.selectionAction}>Select all</Text>
+              </Pressable>
+            </View>
           )}
 
           <FlatList
             data={visibleRecords}
             keyExtractor={(item) => item.id}
-            renderItem={({ item }) => <RecordListItem record={item} onPress={() => void openRecord(item)} />}
-            contentContainerStyle={styles.list}
+            renderItem={({ item }) => (
+              <RecordListItem
+                record={item}
+                onPress={() => void openRecord(item)}
+                selectable={selectionMode}
+                selected={selectedIds.has(item.id)}
+                onToggleSelect={() => toggleSelectRecord(item.id)}
+              />
+            )}
+            contentContainerStyle={[styles.list, selectionMode && { paddingBottom: 88 + insets.bottom }]}
             onEndReached={() => void loadRecordsPage(false)}
             onEndReachedThreshold={0.3}
             refreshControl={
@@ -435,6 +520,19 @@ export default function AdminScreen({ navigation }: Props) {
             }
             ListFooterComponent={loadingRecords ? <ActivityIndicator color={colors.brandPrimary} style={styles.loadingIndicator} /> : null}
           />
+
+          {selectionMode && selectedIds.size > 0 && (
+            <Pressable
+              onPress={downloadSelected}
+              style={[styles.downloadFab, { bottom: 16 + insets.bottom }]}
+              hitSlop={4}
+            >
+              <MaterialIcons name="file-download" size={26} color={colors.white} />
+              <View style={styles.downloadFabBadge}>
+                <Text style={styles.downloadFabBadgeText}>{selectedIds.size}</Text>
+              </View>
+            </Pressable>
+          )}
         </View>
       )}
 
@@ -451,15 +549,18 @@ export default function AdminScreen({ navigation }: Props) {
         alcoholFilter={recordFilter.alcoholFilter}
         operatorEmails={allOperatorEmails.map((op) => op.email)}
         operatorFilterEmail={operatorFilterEmail}
+        dateRange={dateRange}
         onCancel={() => setFilterVisible(false)}
         onReset={() => {
           setRecordFilter(createHistoryFilter());
           setOperatorFilterEmail(null);
+          setDateRange(null);
           setFilterVisible(false);
         }}
-        onApply={(sort, drugFilter, alcoholFilter, operatorEmail) => {
+        onApply={(sort, drugFilter, alcoholFilter, operatorEmail, newDateRange) => {
           setRecordFilter((f) => ({ ...f, sort, drugFilter, alcoholFilter }));
           setOperatorFilterEmail(operatorEmail ?? null);
+          setDateRange(newDateRange ?? null);
           setFilterVisible(false);
         }}
       />
@@ -516,6 +617,8 @@ export default function AdminScreen({ navigation }: Props) {
           </View>
         </View>
       </Modal>
+
+      <DownloadsPanel visible={downloadsVisible} onClose={() => setDownloadsVisible(false)} />
 
       <Modal visible={signingOut} transparent animationType="fade">
         <View style={styles.progressBackdrop}>
@@ -728,7 +831,21 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
   },
   title: { fontSize: 20, fontWeight: '700', color: colors.white },
+  topBarActions: { flexDirection: 'row', alignItems: 'center' },
   menuButton: { padding: 8 },
+  downloadBadge: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: colors.brandAccent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+  },
+  downloadBadgeText: { color: colors.white, fontSize: 10, fontWeight: '700' },
   tabBar: { flexDirection: 'row', backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.divider },
   tab: { flex: 1, paddingVertical: 12, alignItems: 'center', borderBottomWidth: 2, borderBottomColor: 'transparent' },
   tabActive: { borderBottomColor: colors.brandAccent },
@@ -782,6 +899,39 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   activeFilters: { color: colors.brandAccent, fontSize: 12, marginBottom: 8 },
+  selectionBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  selectionCount: { fontSize: 13, fontWeight: '600', color: colors.textPrimary },
+  selectionAction: { fontSize: 13, fontWeight: '600', color: colors.brandPrimary },
+  downloadFab: {
+    position: 'absolute',
+    right: 16,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: colors.brandPrimary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 4,
+    shadowColor: colors.black,
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  downloadFabBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: colors.brandAccent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    borderWidth: 2,
+    borderColor: colors.brandPrimary,
+  },
+  downloadFabBadgeText: { color: colors.white, fontSize: 11, fontWeight: '700' },
   list: { paddingBottom: 16, paddingTop: 4 },
   menuBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.2)' },
   menuCard: {

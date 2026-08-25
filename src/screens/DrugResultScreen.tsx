@@ -10,6 +10,7 @@ import ResultToggle from '../components/ResultToggle';
 import SignaturePad, { SignaturePadHandle } from '../components/SignaturePad';
 import Button from '../components/Button';
 import FormSection from '../components/FormSection';
+import WizardHeader from '../components/WizardHeader';
 import { newMediaFilePath } from '../services/fileStorage';
 import { colors } from '../theme';
 
@@ -122,7 +123,7 @@ export default function DrugResultScreen({ navigation }: Props) {
       contentContainerStyle={[styles.container, { paddingBottom: 20 + insets.bottom }]}
       scrollEnabled={scrollEnabled}
     >
-      <Text style={styles.title}>Drug Test Result</Text>
+      <WizardHeader title="Drug Test Result" step={6} />
 
       {record.drugTestPhotoPath && (
         <View style={styles.photoCard}>
@@ -191,7 +192,6 @@ export default function DrugResultScreen({ navigation }: Props) {
 
 const styles = StyleSheet.create({
   container: { padding: 20, backgroundColor: colors.background },
-  title: { fontSize: 22, fontWeight: '700', color: colors.textPrimary, marginBottom: 16 },
   photoCard: {
     borderRadius: 12,
     borderWidth: 1,

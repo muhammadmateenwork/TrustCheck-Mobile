@@ -13,6 +13,7 @@ import Checkbox from '../components/Checkbox';
 import SignaturePad, { SignaturePadHandle } from '../components/SignaturePad';
 import Button from '../components/Button';
 import FormSection from '../components/FormSection';
+import WizardHeader from '../components/WizardHeader';
 import KeyboardAvoidingScreen from '../components/KeyboardAvoidingScreen';
 import { newMediaFilePath } from '../services/fileStorage';
 import { colors } from '../theme';
@@ -170,7 +171,7 @@ export default function OperatorConsentScreen({ navigation }: Props) {
       scrollEnabled={scrollEnabled}
       keyboardShouldPersistTaps="handled"
     >
-      <Text style={styles.title}>Operator Consent</Text>
+      <WizardHeader title="Operator Consent" step={3} />
 
       {profileNotice && <Text style={styles.profileNotice}>{profileNotice}</Text>}
 
@@ -242,7 +243,6 @@ export default function OperatorConsentScreen({ navigation }: Props) {
 
 const styles = StyleSheet.create({
   container: { padding: 20, backgroundColor: colors.background },
-  title: { fontSize: 22, fontWeight: '700', color: colors.textPrimary, marginBottom: 16 },
   profileNotice: { fontSize: 12, color: colors.brandAccent, marginBottom: 12 },
   sectionLabel: { fontSize: 15, fontWeight: '700', color: colors.textPrimary, marginTop: 20, marginBottom: 8 },
   bodyText: { fontSize: 12, color: colors.textSecondary, marginBottom: 8, lineHeight: 18 },

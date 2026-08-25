@@ -11,6 +11,7 @@ import DateField from '../components/DateField';
 import Button from '../components/Button';
 import { useToast } from '../components/Toast';
 import FormSection from '../components/FormSection';
+import WizardHeader from '../components/WizardHeader';
 import KeyboardAvoidingScreen from '../components/KeyboardAvoidingScreen';
 import { colors } from '../theme';
 
@@ -121,7 +122,7 @@ export default function TestKitScreen({ navigation, route }: Props) {
       contentContainerStyle={[styles.container, { paddingBottom: 20 + insets.bottom }]}
       keyboardShouldPersistTaps="handled"
     >
-      <Text style={styles.title}>Test Kit Information</Text>
+      <WizardHeader title="Test Kit Information" step={4} />
 
       {scannedFromQr && (
         <Text style={styles.qrNotice}>Fields pre-filled from QR code. Please verify before continuing.</Text>
@@ -154,7 +155,6 @@ export default function TestKitScreen({ navigation, route }: Props) {
 
 const styles = StyleSheet.create({
   container: { padding: 20, backgroundColor: colors.background },
-  title: { fontSize: 22, fontWeight: '700', color: colors.textPrimary, marginBottom: 16 },
   qrNotice: { fontSize: 12, color: colors.brandAccent, marginBottom: 4 },
   viewRawLink: { fontSize: 12, color: colors.brandAccent, textDecorationLine: 'underline', marginBottom: 16 },
   dayUnknownNote: { fontSize: 11, color: colors.textSecondary, marginTop: -10, marginBottom: 12 },

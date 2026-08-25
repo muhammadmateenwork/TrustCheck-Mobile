@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, Image, StyleSheet, Pressable, Modal, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Modal, Alert, ActivityIndicator } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { signOut } from 'firebase/auth';
@@ -58,6 +58,8 @@ export default function HistoryScreen({ navigation }: Props) {
     navigation.navigate('DonorData');
   };
 
+  const operatorEmail = firebaseAuth.currentUser?.email ?? null;
+
   const confirmSignOut = () => {
     setMenuVisible(false);
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
@@ -91,8 +93,14 @@ export default function HistoryScreen({ navigation }: Props) {
       </View>
 
       <View style={styles.homeMessage}>
-        <Image source={require('../../assets/logo.png')} style={styles.emptyLogo} resizeMode="contain" />
-        <Text style={styles.homeText}>Tap + New Test to start a donor test.</Text>
+        <View style={styles.badge}>
+          <MaterialIcons name="fact-check" size={40} color={colors.white} />
+        </View>
+        <Text style={styles.homeTitle}>TrustCheck</Text>
+        <Text style={styles.homeSubtitle}>
+          {realOperatorLoggedIn && operatorEmail ? `Signed in as ${operatorEmail}` : 'Guest session — nothing here is saved to your account'}
+        </Text>
+        <Text style={styles.homeText}>Tap New Test below to start a donor drug &amp; alcohol test.</Text>
       </View>
 
       <Button title="New Test" icon="add" onPress={onNewTest} style={[styles.fab, { bottom: 24 + insets.bottom }]} />
@@ -157,8 +165,23 @@ const styles = StyleSheet.create({
   title: { fontSize: 20, fontWeight: '700', color: colors.white },
   menuButton: { padding: 8 },
   homeMessage: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  badge: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    backgroundColor: colors.brandPrimary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+    elevation: 3,
+    shadowColor: colors.black,
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+  },
+  homeTitle: { fontSize: 24, fontWeight: '700', color: colors.textPrimary, marginBottom: 6 },
+  homeSubtitle: { fontSize: 13, color: colors.brandAccent, fontWeight: '600', textAlign: 'center', marginBottom: 16 },
   homeText: { fontSize: 15, color: colors.textSecondary, textAlign: 'center' },
-  emptyLogo: { width: 56, height: 56, opacity: 0.5, marginBottom: 16 },
   fab: { position: 'absolute', right: 16, bottom: 24, left: 16 },
   menuBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.2)' },
   menuCard: {

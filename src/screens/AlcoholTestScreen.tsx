@@ -15,6 +15,7 @@ import PhotoCaptureBox from '../components/PhotoCaptureBox';
 import Button from '../components/Button';
 import { useToast } from '../components/Toast';
 import FormSection from '../components/FormSection';
+import WizardHeader from '../components/WizardHeader';
 import KeyboardAvoidingScreen from '../components/KeyboardAvoidingScreen';
 import { colors } from '../theme';
 
@@ -161,7 +162,7 @@ export default function AlcoholTestScreen({ navigation }: Props) {
       contentContainerStyle={[styles.container, { paddingBottom: 20 + insets.bottom }]}
       keyboardShouldPersistTaps="handled"
     >
-      <Text style={styles.title}>Alcohol Test</Text>
+      <WizardHeader title="Alcohol Test" step={7} />
 
       <FormSection title="Device">
         <TextField label="Device Serial # *" value={deviceSerial} onChangeText={setDeviceSerial} startIcon="devices" />
@@ -219,7 +220,6 @@ export default function AlcoholTestScreen({ navigation }: Props) {
 
 const styles = StyleSheet.create({
   container: { padding: 20, backgroundColor: colors.background },
-  title: { fontSize: 22, fontWeight: '700', color: colors.textPrimary, marginBottom: 16 },
   sectionLabel: { fontSize: 15, fontWeight: '700', color: colors.textPrimary, marginTop: 20, marginBottom: 8 },
   fieldLabel: { fontSize: 13, color: colors.textSecondary, marginTop: 12, marginBottom: 4 },
   bottomBar: { flexDirection: 'row', gap: 12, marginTop: 24 },

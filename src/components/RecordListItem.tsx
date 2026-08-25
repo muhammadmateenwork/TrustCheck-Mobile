@@ -6,18 +6,41 @@ import { formatDateTime } from '../utils/dateUtils';
 import Badge from './Badge';
 import { colors } from '../theme';
 
-/** Mirrors item_test_record.xml + HistoryAdapter.java's binding logic. */
-export default function RecordListItem({ record, onPress }: { record: TestRecord; onPress: () => void }) {
+/** Mirrors item_test_record.xml + HistoryAdapter.java's binding logic. When `selectable` is set
+ *  (Admin's bulk-download selection mode — see AdminScreen), tapping the row toggles selection
+ *  instead of opening the record, and the avatar is replaced with a checkbox. */
+export default function RecordListItem({
+  record,
+  onPress,
+  selectable,
+  selected,
+  onToggleSelect,
+}: {
+  record: TestRecord;
+  onPress: () => void;
+  selectable?: boolean;
+  selected?: boolean;
+  onToggleSelect?: () => void;
+}) {
   const fullName = donorFullName(record);
   const initial = fullName.length > 0 && !fullName.startsWith('(') ? fullName[0].toUpperCase() : '?';
   const drugLabel = labelFor(record.drugResult.overallResult);
   const alcoholLabel = alcoholLabelFor(record.alcoholResult.firstTestResult);
 
   return (
-    <Pressable style={styles.row} onPress={onPress}>
-      <View style={styles.avatar}>
-        <Text style={styles.avatarText}>{initial}</Text>
-      </View>
+    <Pressable style={styles.row} onPress={selectable ? onToggleSelect : onPress}>
+      {selectable ? (
+        <MaterialIcons
+          name={selected ? 'check-circle' : 'radio-button-unchecked'}
+          size={28}
+          color={selected ? colors.brandAccent : colors.textSecondary}
+          style={styles.checkbox}
+        />
+      ) : (
+        <View style={styles.avatar}>
+          <Text style={styles.avatarText}>{initial}</Text>
+        </View>
+      )}
       <View style={styles.content}>
         <Text style={styles.name}>{fullName}</Text>
         <Text style={styles.meta}>
@@ -28,7 +51,7 @@ export default function RecordListItem({ record, onPress }: { record: TestRecord
           <Badge text={`Alcohol: ${alcoholLabel}`} result={record.alcoholResult.firstTestResult} />
         </View>
       </View>
-      <MaterialIcons name="chevron-right" size={20} color={colors.textSecondary} />
+      {!selectable && <MaterialIcons name="chevron-right" size={20} color={colors.textSecondary} />}
     </Pressable>
   );
 }
@@ -72,6 +95,7 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   avatarText: { color: colors.white, fontSize: 18, fontWeight: '700' },
+  checkbox: { marginRight: 12 },
   content: { flex: 1 },
   name: { fontSize: 16, fontWeight: '600', color: colors.textPrimary },
   meta: { fontSize: 12, color: colors.textSecondary, marginTop: 2, marginBottom: 6 },

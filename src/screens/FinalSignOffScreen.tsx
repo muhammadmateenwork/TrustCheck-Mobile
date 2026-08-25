@@ -7,6 +7,7 @@ import { useWorkflow } from '../hooks/WorkflowContext';
 import SignaturePad, { SignaturePadHandle } from '../components/SignaturePad';
 import Button from '../components/Button';
 import FormSection from '../components/FormSection';
+import WizardHeader from '../components/WizardHeader';
 import { newMediaFilePath } from '../services/fileStorage';
 import { colors } from '../theme';
 
@@ -60,7 +61,7 @@ export default function FinalSignOffScreen({ navigation }: Props) {
       contentContainerStyle={[styles.container, { paddingBottom: 20 + insets.bottom }]}
       scrollEnabled={scrollEnabled}
     >
-      <Text style={styles.title}>Final Sign-off</Text>
+      <WizardHeader title="Final Sign-off" step={8} />
 
       <FormSection>
         <Text style={styles.fieldLabel}>Operator</Text>
@@ -92,7 +93,6 @@ export default function FinalSignOffScreen({ navigation }: Props) {
 
 const styles = StyleSheet.create({
   container: { padding: 20, backgroundColor: colors.background },
-  title: { fontSize: 22, fontWeight: '700', color: colors.textPrimary, marginBottom: 16 },
   fieldLabel: { fontSize: 13, color: colors.textSecondary, marginBottom: 4 },
   operatorName: { fontSize: 16, fontWeight: '600', color: colors.textPrimary, marginBottom: 8 },
   sectionLabel: { fontSize: 15, fontWeight: '700', color: colors.textPrimary, marginTop: 20, marginBottom: 8 },
