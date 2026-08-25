@@ -42,7 +42,6 @@ export default function OperatorConsentScreen({ navigation }: Props) {
 
   const [operatorName, setOperatorName] = useState(consent.operatorName ?? '');
   const [operatorId, setOperatorId] = useState(consent.operatorId ?? '');
-  const [phoneNumber, setPhoneNumber] = useState(consent.phoneNumber ?? '');
   const [qualified, setQualified] = useState<'yes' | 'no' | null>(
     consent.qualificationAvailable == null ? null : consent.qualificationAvailable ? 'yes' : 'no'
   );
@@ -55,6 +54,11 @@ export default function OperatorConsentScreen({ navigation }: Props) {
   // Suppresses re-applying a slower cloud-profile callback over an edit the operator already
   // made in between — see maybeLoadCloudProfile's own doc.
   const userEditedFields = useRef(false);
+  // Phone number is no longer collected on this screen, but the operator's cloud profile
+  // document still has its own phoneNumber field (settable from My Profile) — this just carries
+  // forward whatever that already was so onNext's profile save doesn't blank it out. Never shown
+  // or edited here.
+  const existingPhoneNumber = useRef<string | null>(consent.phoneNumber ?? null);
 
   useEffect(() => {
     void maybeLoadCloudProfile();
@@ -82,7 +86,7 @@ export default function OperatorConsentScreen({ navigation }: Props) {
         }
         setOperatorName(profile.operatorName ?? '');
         setOperatorId(profile.operatorId ?? '');
-        setPhoneNumber(profile.phoneNumber ?? '');
+        existingPhoneNumber.current = profile.phoneNumber ?? null;
         setQualified(profile.qualificationAvailable == null ? null : profile.qualificationAvailable ? 'yes' : 'no');
         setProfileNotice('Loaded your saved profile');
       },
@@ -104,7 +108,6 @@ export default function OperatorConsentScreen({ navigation }: Props) {
     agreed &&
     operatorName.trim() !== '' &&
     operatorId.trim() !== '' &&
-    phoneNumber.trim() !== '' &&
     qualified === 'yes' &&
     hasSignature;
 
@@ -116,7 +119,6 @@ export default function OperatorConsentScreen({ navigation }: Props) {
       r.operatorConsent.agreedNoDataMisuse = agreed;
       r.operatorConsent.operatorName = operatorName.trim();
       r.operatorConsent.operatorId = operatorId.trim();
-      r.operatorConsent.phoneNumber = phoneNumber.trim();
       r.operatorConsent.qualificationAvailable = qualified === 'yes';
     });
 
@@ -145,7 +147,7 @@ export default function OperatorConsentScreen({ navigation }: Props) {
       const profile: OperatorProfile = {
         operatorName: operatorName.trim(),
         operatorId: operatorId.trim(),
-        phoneNumber: phoneNumber.trim(),
+        phoneNumber: existingPhoneNumber.current,
         qualificationAvailable: qualified === 'yes',
         email: user.email,
         updatedAt: Date.now(),
@@ -202,16 +204,6 @@ export default function OperatorConsentScreen({ navigation }: Props) {
             setOperatorId(v);
           }}
           startIcon="badge"
-        />
-        <TextField
-          label="Phone number *"
-          value={phoneNumber}
-          onChangeText={(v) => {
-            userEditedFields.current = true;
-            setPhoneNumber(v);
-          }}
-          keyboardType="phone-pad"
-          startIcon="phone"
         />
       </FormSection>
 

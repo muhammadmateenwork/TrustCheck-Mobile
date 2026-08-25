@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
 import { useWorkflow } from '../hooks/WorkflowContext';
-import { REASON_FOR_TEST_OPTIONS, isValidEmail } from '../models/TestSetup';
+import { REASON_FOR_TEST_OPTIONS } from '../models/TestSetup';
 import TextField from '../components/TextField';
 import SelectField from '../components/SelectField';
 import Button from '../components/Button';
@@ -26,16 +26,12 @@ export default function TestSetupScreen({ navigation }: Props) {
   const [supervisor, setSupervisor] = useState(setup.supervisorOnSite ?? '');
   const [supportPerson, setSupportPerson] = useState(setup.supportPerson ?? '');
   const [resultRecipient, setResultRecipient] = useState(setup.resultRecipient ?? '');
-  const [recipientEmail, setRecipientEmail] = useState(setup.recipientEmail ?? '');
-  const [location, setLocation] = useState(setup.location ?? '');
 
   const canProceed =
     company.trim() !== '' &&
     testingSite.trim() !== '' &&
     !!reasonForTest &&
-    resultRecipient.trim() !== '' &&
-    isValidEmail(recipientEmail) &&
-    location.trim() !== '';
+    resultRecipient.trim() !== '';
 
   // Persists whatever's currently in the fields regardless of validity — used on both Next and
   // Back, so leaving this screen either direction never silently drops what the operator typed
@@ -48,8 +44,6 @@ export default function TestSetupScreen({ navigation }: Props) {
       r.testSetup.supervisorOnSite = supervisor.trim();
       r.testSetup.supportPerson = supportPerson.trim();
       r.testSetup.resultRecipient = resultRecipient.trim();
-      r.testSetup.recipientEmail = recipientEmail.trim();
-      r.testSetup.location = location.trim();
     });
     await saveDraft();
   };
@@ -84,15 +78,6 @@ export default function TestSetupScreen({ navigation }: Props) {
         <TextField label="Supervisor on Site" value={supervisor} onChangeText={setSupervisor} startIcon="supervisor-account" />
         <TextField label="Support Person" value={supportPerson} onChangeText={setSupportPerson} startIcon="support-agent" />
         <TextField label="Result Recipient *" value={resultRecipient} onChangeText={setResultRecipient} startIcon="person" />
-        <TextField
-          label="Recipient e-mail *"
-          value={recipientEmail}
-          onChangeText={setRecipientEmail}
-          autoCapitalize="none"
-          keyboardType="email-address"
-          startIcon="email"
-        />
-        <TextField label="Location *" value={location} onChangeText={setLocation} startIcon="place" />
       </FormSection>
 
       <View style={styles.bottomBar}>

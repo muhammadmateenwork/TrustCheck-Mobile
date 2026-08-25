@@ -82,7 +82,7 @@ export default function ConsentScreen({ navigation }: Props) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  scroll: { padding: 20 },
+  scroll: { flexGrow: 1, justifyContent: 'center', padding: 20 },
   logo: { width: 72, height: 72, alignSelf: 'center', marginBottom: 12 },
   appName: { alignSelf: 'center', fontSize: 18, fontWeight: '700', color: colors.brandPrimary },
   title: {

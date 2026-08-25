@@ -14,9 +14,12 @@
  *
  * 1. A blur/motion-sharpness gate over the whole crop (computeSharpness) — a badly out-of-focus
  *    or motion-smeared frame is rejected before any line is even scored.
- * 2. A cross-strip row-alignment consistency check in analyze() — the two strips are on one
- *    rigid physical card, so their located windows must line up vertically; two accidental
- *    "found something" patches elsewhere in a scene have no reason to.
+ * 2. Cross-strip consistency checks in analyze() — the two strips are on one rigid physical
+ *    card, so their located windows must line up vertically (row alignment) AND be similar
+ *    widths (width consistency); two accidental "found something" patches elsewhere in a scene
+ *    have no reason to agree on either. The width check was added after a real client-reported
+ *    false positive (detecting a result with no cassette in frame at all) got past row alignment
+ *    alone.
  * 3. Widened strip-search tolerances calibrated against a real reference photo of the physical
  *    Dräger DrugCheck 3000 cassette (native's own tolerances assumed a wider crop showing the
  *    cassette's blue-gray housing around the reading window, which this app's tight guide-box
@@ -83,6 +86,11 @@ var LOCAL_PRESENCE_THRESHOLD = 8;
 // two unrelated "something lighter than its surroundings" patches elsewhere in a photo — which
 // have no reason to line up vertically at all — essentially never pass by chance.
 var ROW_ALIGNMENT_TOLERANCE = 0.12;
+// The narrower of the two strips' located column widths has to be at least this fraction of the
+// wider one — lenient enough to tolerate real perspective/tilt (viewing the cassette at an angle
+// genuinely can make one strip render narrower than the other), tight enough that two unrelated
+// patches of very different sizes (a thin door frame vs. a wide light switch, say) get rejected.
+var MIN_WIDTH_CONSISTENCY_RATIO = 0.5;
 // Below this average adjacent-pixel luminance-gradient magnitude, a frame is treated as too
 // blurred/motion-smeared to trust any line call from at all (both strips forced to read as not
 // located) — deliberately lenient (only rejects clearly, badly out-of-focus frames) since this
@@ -277,7 +285,8 @@ function analyzeStrip(pixels, width, height, leftFrac, rightFrac, substances) {
     // against each other; not part of the JSON shape CassetteReading.ts's interface declares,
     // but harmless to include (unused extra fields survive JSON.parse without effect).
     rowTopFrac: topPx / height,
-    rowBottomFrac: bottomPx / height
+    rowBottomFrac: bottomPx / height,
+    colWidthFrac: (rightPx - leftPx) / width
   };
 }
 
@@ -295,6 +304,24 @@ function analyze(pixels, width, height) {
     var topDiff = Math.abs(left.rowTopFrac - right.rowTopFrac);
     var bottomDiff = Math.abs(left.rowBottomFrac - right.rowBottomFrac);
     if (topDiff > ROW_ALIGNMENT_TOLERANCE || bottomDiff > ROW_ALIGNMENT_TOLERANCE) {
+      left.located = false;
+      right.located = false;
+    }
+  }
+
+  // Same idea as the row-alignment check, applied to width instead of vertical position: the two
+  // strips are printed at the same physical size on one rigid cassette, so their located column
+  // widths have to be roughly consistent with each other too. Two accidental "found something
+  // lighter than its surroundings" patches from unrelated content (a door frame here, a light
+  // switch there) have no reason to happen to be similar widths — this was added specifically
+  // after a client-reported false positive (the scanner detecting a result with no cassette
+  // present at all), as an additional structural signal alongside the row-alignment check, since
+  // that alone wasn't catching every false-positive case.
+  if (left.located && right.located) {
+    var narrower = Math.min(left.colWidthFrac, right.colWidthFrac);
+    var wider = Math.max(left.colWidthFrac, right.colWidthFrac);
+    var widthRatio = wider > 0 ? narrower / wider : 0;
+    if (widthRatio < MIN_WIDTH_CONSISTENCY_RATIO) {
       left.located = false;
       right.located = false;
     }

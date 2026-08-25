@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, useWindowDimensions } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ActivityIndicator, useWindowDimensions } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions, CameraCapturedPicture } from 'expo-camera';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -39,21 +40,26 @@ const AUTO_SCAN_RETRY_DELAY_MS = 900;
 const CONSECUTIVE_CONFIRMATIONS_REQUIRED = 2;
 
 /**
- * The camera opens as a live viewfinder with the cassette guide overlay and immediately starts
- * scanning in the background: every ~1.5s it silently takes a photo, crops it to a wide area
- * around the guide box (see CassetteGuideOverlay#computeSearchRectFraction), and searches that
- * area across several distances/tilts for the cassette (see CassetteAnalyzerBridge and
- * cassetteAnalyzerHtml.ts#searchAndAnalyze) rather than assuming it exactly fills the guide box —
- * once a CONFIDENT reading (see CassetteReading#isConfidentlyDetected: both control lines present
- * with a real confidence margin) is found on CONSECUTIVE_CONFIRMATIONS_REQUIRED attempts in a
- * row, that attempt's raw capture is cropped down to just its own wide search area (see
- * saveCassetteCrop) — trimming away the surrounding scene without risking cutting off part of
- * the cassette the way the analyzer's own internal (tighter, sometimes rotated/rescaled)
- * candidate crop could — and that becomes the saved/displayed photo, with the result auto-filled
- * as if the operator had captured it themselves. Failed background attempts are discarded (no
- * visible photo shown, no status flicker) and it just keeps trying. The operator can tap "Skip
- * auto-detect" at any point for the same search-area crop with no analysis at all — a manual
- * fallback for when auto-detect is struggling. That stops the background scanning.
+ * The camera opens as a live viewfinder with the cassette guide overlay, idle — it does NOT start
+ * scanning on its own. The operator picks one of two explicit actions (per client direction: the
+ * previous version started snapping background photos the instant this screen opened, before the
+ * operator had even positioned the cassette, which was part of what made stray false detections
+ * possible):
+ *
+ * - "Scan Kit": starts the auto-detect loop — every ~1s it silently takes a photo, crops it to a
+ *   wide area around the guide box (see CassetteGuideOverlay#computeSearchRectFraction), and
+ *   searches that area across several distances/tilts for the cassette (see
+ *   CassetteAnalyzerBridge and cassetteAnalyzerHtml.ts#searchAndAnalyze) rather than assuming it
+ *   exactly fills the guide box. Once a CONFIDENT reading (see
+ *   CassetteReading#isConfidentlyDetected: both control lines present with a real confidence
+ *   margin, both strips structurally consistent with each other — see that file's own doc) is
+ *   found on CONSECUTIVE_CONFIRMATIONS_REQUIRED attempts in a row, that attempt's raw capture is
+ *   cropped down to just its own wide search area (see saveCassetteCrop) and becomes the
+ *   saved/displayed photo, with the result auto-filled as if the operator had captured it
+ *   themselves. Failed attempts are discarded silently and it just keeps trying until cancelled.
+ * - "Take Picture": one manual capture (same search-area crop, no analysis at all) — the operator
+ *   enters the result by hand on the next screen. For when auto-detect is struggling, or the
+ *   operator would just rather not wait on it.
  *
  * isConfidentlyDetected() plus the two-in-a-row consensus requirement are deliberately stricter
  * than the native app's own single isFullyValid() check — this loop retries continuously while
@@ -72,8 +78,11 @@ const CONSECUTIVE_CONFIRMATIONS_REQUIRED = 2;
  */
 export default function DrugCassetteScanScreen({ navigation }: Props) {
   const { record } = useWorkflow();
+  const insets = useSafeAreaInsets();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const [permission, requestPermission] = useCameraPermissions();
+  const [cameraReady, setCameraReady] = useState(false);
+  const [scanning, setScanning] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
   const [statusText, setStatusText] = useState(IDLE_STATUS_TEXT);
 
@@ -81,7 +90,7 @@ export default function DrugCassetteScanScreen({ navigation }: Props) {
   const analyzerRef = useRef<CassetteAnalyzerHandle>(null);
   const isCapturingRef = useRef(false);
   const autoScanTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const autoScanStopped = useRef(false);
+  const autoScanStopped = useRef(true);
   const confirmStreak = useRef(0);
 
   useEffect(() => {
@@ -140,10 +149,25 @@ export default function DrugCassetteScanScreen({ navigation }: Props) {
 
   const stopAutoScan = () => {
     autoScanStopped.current = true;
+    setScanning(false);
+    setStatusText(IDLE_STATUS_TEXT);
     if (autoScanTimer.current) {
       clearTimeout(autoScanTimer.current);
       autoScanTimer.current = null;
     }
+  };
+
+  /** "Scan Kit" — starts the auto-detect loop. Scanning never starts on its own (see this
+   *  screen's own doc for why); the operator has to deliberately opt into it. */
+  const onScanKit = () => {
+    if (scanning || isCapturingRef.current || !cameraRef.current || !record.id) return;
+    confirmStreak.current = 0;
+    autoScanStopped.current = false;
+    setScanning(true);
+    setStatusText('Scanning for kit…');
+    autoScanTimer.current = setTimeout(() => {
+      void runCaptureAttempt();
+    }, AUTO_SCAN_INITIAL_DELAY_MS);
   };
 
   const scheduleNextAutoScan = () => {
@@ -208,7 +232,9 @@ export default function DrugCassetteScanScreen({ navigation }: Props) {
     }
   };
 
-  const skipAutoDetect = async () => {
+  /** "Take Picture" — one manual capture, no analysis. The operator enters the result by hand on
+   *  the next screen. Works regardless of whether "Scan Kit" was already running. */
+  const onTakePicture = async () => {
     stopAutoScan();
     if (isCapturingRef.current || !cameraRef.current || !record.id) return;
     isCapturingRef.current = true;
@@ -230,10 +256,7 @@ export default function DrugCassetteScanScreen({ navigation }: Props) {
   const onCameraReady = () => {
     // Ensure the per-record media directory exists before takePictureAsync's copy step needs it.
     if (record.id) void mediaDir(record.id);
-    autoScanStopped.current = false;
-    autoScanTimer.current = setTimeout(() => {
-      void runCaptureAttempt();
-    }, AUTO_SCAN_INITIAL_DELAY_MS);
+    setCameraReady(true);
   };
 
   // Same camera-icon-plus-message idle convention used everywhere else in the app before a photo
@@ -268,14 +291,40 @@ export default function DrugCassetteScanScreen({ navigation }: Props) {
         <Text style={styles.statusText}>{statusText}</Text>
       </View>
 
-      <View style={styles.bottomBar}>
-        <Pressable
-          style={[styles.skipButton, isCapturing && styles.disabledButton]}
-          onPress={() => void skipAutoDetect()}
-          disabled={isCapturing}
-        >
-          <Text style={styles.skipButtonText}>Skip auto-detect — take a plain photo instead</Text>
-        </Pressable>
+      <View style={[styles.bottomBar, { bottom: 24 + insets.bottom }]}>
+        {scanning ? (
+          <Pressable
+            style={[styles.cancelButton, isCapturing && styles.disabledButton]}
+            onPress={stopAutoScan}
+            disabled={isCapturing}
+          >
+            <MaterialIcons name="close" size={18} color={colors.white} />
+            <Text style={styles.cancelButtonText}>Cancel scan</Text>
+          </Pressable>
+        ) : (
+          <View style={styles.actionRow}>
+            <Pressable
+              style={[styles.actionButton, styles.actionButtonPrimary, !cameraReady && styles.disabledButton]}
+              onPress={onScanKit}
+              disabled={!cameraReady || isCapturing}
+            >
+              <MaterialIcons name="qr-code-scanner" size={20} color={colors.white} />
+              <Text style={styles.actionButtonPrimaryText}>Scan Kit</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.actionButton, styles.actionButtonOutlined, (!cameraReady || isCapturing) && styles.disabledButton]}
+              onPress={() => void onTakePicture()}
+              disabled={!cameraReady || isCapturing}
+            >
+              {isCapturing ? (
+                <ActivityIndicator size="small" color={colors.white} />
+              ) : (
+                <MaterialIcons name="camera-alt" size={20} color={colors.white} />
+              )}
+              <Text style={styles.actionButtonOutlinedText}>Take Picture</Text>
+            </Pressable>
+          </View>
+        )}
       </View>
 
       <CassetteAnalyzerBridge ref={analyzerRef} />
@@ -301,8 +350,32 @@ const styles = StyleSheet.create({
   },
   statusIcon: { marginRight: 8 },
   statusText: { color: colors.white, textAlign: 'center', fontSize: 14, flexShrink: 1 },
-  bottomBar: { position: 'absolute', left: 20, right: 20, bottom: 24 },
-  skipButton: { height: 44, alignItems: 'center', justifyContent: 'center', padding: 8 },
-  skipButtonText: { color: colors.white, fontSize: 13 },
+  bottomBar: { position: 'absolute', left: 20, right: 20 },
+  actionRow: { flexDirection: 'row', gap: 12 },
+  actionButton: {
+    flex: 1,
+    height: 52,
+    borderRadius: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  actionButtonPrimary: { backgroundColor: colors.brandAccent },
+  actionButtonPrimaryText: { color: colors.white, fontWeight: '700', fontSize: 15 },
+  actionButtonOutlined: { backgroundColor: 'rgba(255,255,255,0.12)', borderWidth: 1.5, borderColor: colors.white },
+  actionButtonOutlinedText: { color: colors.white, fontWeight: '700', fontSize: 15 },
+  cancelButton: {
+    flexDirection: 'row',
+    alignSelf: 'center',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 44,
+    paddingHorizontal: 20,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    gap: 8,
+  },
+  cancelButtonText: { color: colors.white, fontSize: 14, fontWeight: '600' },
   disabledButton: { opacity: 0.5 },
 });

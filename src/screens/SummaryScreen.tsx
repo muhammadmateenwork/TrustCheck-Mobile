@@ -202,11 +202,9 @@ export default function SummaryScreen({ navigation }: Props) {
   };
 
   const onSendEmail = async () => {
-    const recipient = record.testSetup.recipientEmail;
-    if (!recipient || recipient.trim() === '') {
-      showToast('No recipient e-mail was set up for this test', 'error');
-      return;
-    }
+    // No longer gated on testSetup.recipientEmail — that field was removed from Test Setup, and
+    // every report currently goes to TEST_RECIPIENT_OVERRIDE regardless (see that constant's own
+    // doc). Re-add a recipient check here if/when the override is ever removed.
     setSendingEmail(true);
     let tempPath: string | null = null;
     try {
