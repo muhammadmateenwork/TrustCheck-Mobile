@@ -18,7 +18,6 @@
     "expo-print": "~15.0.8",
     "expo-screen-capture": "~8.0.10",
     "expo-status-bar": "~3.0.9",
-    "expo-updates": "~29.0.20",
     "firebase": "^12.18.0",
     "pdfjs-dist": "^3.11.174",
     "react": "19.1.0",

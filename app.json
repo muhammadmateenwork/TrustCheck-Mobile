@@ -30,12 +30,6 @@
         "projectId": "58f01fea-dba0-4542-a710-a318b2cc491f"
       }
     },
-    "owner": "mateen543",
-    "updates": {
-      "url": "https://u.expo.dev/58f01fea-dba0-4542-a710-a318b2cc491f"
-    },
-    "runtimeVersion": {
-      "policy": "appVersion"
-    }
+    "owner": "mateen543"
   }
 }
