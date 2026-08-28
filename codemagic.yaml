@@ -1,0 +1,82 @@
+workflows:
+  # Builds an iOS SIMULATOR app — needs no Apple ID, no signing, no device UDID at all.
+  # Run this one FIRST, purely to confirm the build pipeline itself works (npm install,
+  # expo prebuild, pod install, Xcode build) before touching real-device code signing.
+  # The resulting .app only runs inside Xcode's Simulator on a Mac, not on a physical iPhone.
+  ios-simulator:
+    name: iOS Simulator (no signing needed)
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      node: 22.13.0
+      xcode: latest
+      cocoapods: default
+      vars:
+        XCODE_WORKSPACE: "ios/TrustCheckMobile.xcworkspace"
+        XCODE_SCHEME: "TrustCheckMobile"
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: master
+          include: true
+    scripts:
+      - name: Install npm dependencies
+        script: npm ci
+      - name: Prebuild native iOS project
+        script: npx expo prebuild --platform ios --no-install
+      - name: Install CocoaPods dependencies
+        script: cd ios && pod install
+      - name: Build for Simulator
+        script: |
+          xcode-project build-ipa \
+            --workspace "$XCODE_WORKSPACE" \
+            --scheme "$XCODE_SCHEME" \
+            --destination "generic/platform=iOS Simulator"
+    artifacts:
+      - build/ios/**/*.app
+      - build/ios/**/*.xcarchive
+
+  # Builds and installs on a REAL iPhone — needs code signing set up in Codemagic's dashboard
+  # first (Team settings -> Code signing identities), using a free Apple ID and your iPhone's
+  # UDID registered as a test device. Do not run this until that's configured, or the build
+  # will fail at the "Set up code signing" step.
+  ios-device:
+    name: iOS Device (free Apple ID signing)
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      node: 22.13.0
+      xcode: latest
+      cocoapods: default
+      vars:
+        XCODE_WORKSPACE: "ios/TrustCheckMobile.xcworkspace"
+        XCODE_SCHEME: "TrustCheckMobile"
+      # ios_signing references the certificate/profile you set up in Codemagic's UI —
+      # the exact group/reference name is assigned there when you configure signing;
+      # update this block to match what Codemagic shows once you reach that step.
+      ios_signing:
+        distribution_type: development
+        bundle_identifier: com.anonymous.TrustCheckMobile
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: master
+          include: true
+    scripts:
+      - name: Install npm dependencies
+        script: npm ci
+      - name: Prebuild native iOS project
+        script: npx expo prebuild --platform ios --no-install
+      - name: Install CocoaPods dependencies
+        script: cd ios && pod install
+      - name: Set up code signing
+        script: xcode-project use-profiles
+      - name: Build ipa for distribution
+        script: |
+          xcode-project build-ipa \
+            --workspace "$XCODE_WORKSPACE" \
+            --scheme "$XCODE_SCHEME"
+    artifacts:
+      - build/ios/ipa/*.ipa
