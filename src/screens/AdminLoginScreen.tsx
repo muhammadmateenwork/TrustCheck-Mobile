@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, Image, StyleSheet, ScrollView, Pressable, KeyboardAvoidingView, Platform } from 'react-native';
+import { Text, Image, StyleSheet, Pressable } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
@@ -9,6 +10,7 @@ import { getRole, ROLE_ADMIN, ensureAnonymousSession } from '../services/authSes
 import TextField from '../components/TextField';
 import Button from '../components/Button';
 import FormSection from '../components/FormSection';
+import KeyboardAvoidingScreen from '../components/KeyboardAvoidingScreen';
 import { colors } from '../theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'AdminLogin'>;
@@ -22,6 +24,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'AdminLogin'>;
  * way to this screen still can't get into the Admin panel with their own credentials.
  */
 export default function AdminLoginScreen({ navigation }: Props) {
+  const insets = useSafeAreaInsets();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -61,12 +64,11 @@ export default function AdminLoginScreen({ navigation }: Props) {
   };
 
   return (
-    <KeyboardAvoidingView
+    <KeyboardAvoidingScreen
       style={styles.flex}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 24}
+      contentContainerStyle={[styles.container, { paddingBottom: 20 + insets.bottom }]}
+      keyboardShouldPersistTaps="handled"
     >
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <Image source={require('../../assets/logo.png')} style={styles.logo} resizeMode="contain" />
         <Text style={styles.title}>Admin Login</Text>
 
@@ -97,8 +99,7 @@ export default function AdminLoginScreen({ navigation }: Props) {
         <Pressable onPress={() => navigation.navigate('ForgotPassword')} style={styles.forgot}>
           <Text style={styles.forgotText}>Forgot password?</Text>
         </Pressable>
-      </ScrollView>
-    </KeyboardAvoidingView>
+    </KeyboardAvoidingScreen>
   );
 }
 

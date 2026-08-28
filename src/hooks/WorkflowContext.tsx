@@ -1,9 +1,41 @@
-import React, { createContext, useContext, useRef, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useRef, useState, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { TestRecord, createTestRecord, STATUS_COMPLETED } from '../models/TestRecord';
 import { saveRecord, loadRecord } from '../services/recordRepository';
+import { clearNavigationState, isSessionStillAlive } from '../services/navigationPersistence';
 
-const KEY_ACTIVE_RECORD_ID = 'active_record_id';
+/** Exported so App.tsx can check for a resumable record BEFORE this provider has even mounted
+ *  (needed to decide whether to override NavigationContainer's initialState) without duplicating
+ *  the key string — see navigationPersistence.ts's own doc for why both pieces are needed. */
+export const KEY_ACTIVE_RECORD_ID = 'active_record_id';
+
+/** Loads the resumable record BEFORE WorkflowProvider ever mounts, so its result can be passed in
+ *  as `initialRecord` instead of loaded internally after the fact. This used to happen in a
+ *  useEffect inside WorkflowProvider itself, which caused a real bug: every wizard screen
+ *  initializes its own form fields via `useState(record.donor.firstName ?? '')` -- a one-time
+ *  initializer that only runs on that screen's own first render and never re-syncs later. When a
+ *  restored navigation stack mounts several screens at once (see navigationPersistence.ts), all of
+ *  them mounted BEFORE this async load had finished, so every one of them captured the still-empty
+ *  default record and just... stayed empty, even after the real data loaded in a moment later.
+ *  Resolving this before the provider (and therefore every screen) ever mounts means every
+ *  screen's very first render already sees the correct data.
+ *
+ *  Also where the "was this session actually still alive" gate lives (see
+ *  navigationPersistence.ts#isSessionStillAlive's own doc) -- a resumable record technically
+ *  existing on disk isn't enough on its own; if the app was genuinely closed and reopened much
+ *  later, this returns null on purpose so the caller starts fresh, same as a first-ever launch. */
+export async function loadResumableRecord(): Promise<TestRecord | null> {
+  if (!(await isSessionStillAlive())) return null;
+  try {
+    const pendingId = await AsyncStorage.getItem(KEY_ACTIVE_RECORD_ID);
+    if (!pendingId) return null;
+    const resumed = await loadRecord(pendingId);
+    if (resumed && resumed.status !== STATUS_COMPLETED) return resumed;
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Holds the donor test record currently being filled in across the multi-screen wizard — mirrors
@@ -38,30 +70,31 @@ interface WorkflowContextValue {
 
 const WorkflowContext = createContext<WorkflowContextValue | null>(null);
 
-export function WorkflowProvider({ children }: { children: React.ReactNode }) {
-  const recordRef = useRef<TestRecord>(createTestRecord());
+export function WorkflowProvider({
+  children,
+  initialRecord,
+}: {
+  children: React.ReactNode;
+  /** Pre-loaded by App.tsx via loadResumableRecord() BEFORE this provider ever mounts -- see that
+   *  function's own doc for the real bug (empty-looking form screens) this avoids by not loading
+   *  it here, after the fact, in a useEffect. */
+  initialRecord?: TestRecord | null;
+}) {
+  const recordRef = useRef<TestRecord>(initialRecord ?? createTestRecord());
   const [tick, setTick] = useState(0);
-  const [ready, setReady] = useState(false);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const pendingId = await AsyncStorage.getItem(KEY_ACTIVE_RECORD_ID);
-        if (pendingId) {
-          const resumed = await loadRecord(pendingId);
-          if (resumed && resumed.status !== STATUS_COMPLETED) {
-            recordRef.current = resumed;
-          }
-        }
-      } finally {
-        setReady(true);
-      }
-    })();
-  }, []);
+  // Always true now -- the one-time async load this used to gate on on happens in App.tsx BEFORE
+  // this provider mounts at all (see initialRecord's own doc), so there's no longer a real loading
+  // window for this provider itself to represent. Left in the exposed context value rather than
+  // removed outright since it's a reasonable thing for a future screen to want to check.
+  const ready = true;
 
   const startNew = useCallback(() => {
     recordRef.current = createTestRecord();
     void AsyncStorage.setItem(KEY_ACTIVE_RECORD_ID, recordRef.current.id);
+    // A stale saved nav position from a previously-abandoned (never completed, never explicitly
+    // cleared) test shouldn't get restored underneath this brand-new, empty record on some future
+    // cold start -- see navigationPersistence.ts's own doc.
+    void clearNavigationState();
     setTick((t) => t + 1);
   }, []);
 
@@ -82,6 +115,7 @@ export function WorkflowProvider({ children }: { children: React.ReactNode }) {
   const clear = useCallback(async () => {
     recordRef.current = createTestRecord();
     await AsyncStorage.removeItem(KEY_ACTIVE_RECORD_ID);
+    await clearNavigationState();
     setTick((t) => t + 1);
   }, []);
 

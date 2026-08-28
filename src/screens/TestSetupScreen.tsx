@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
@@ -60,8 +60,7 @@ export default function TestSetupScreen({ navigation }: Props) {
   };
 
   return (
-    <KeyboardAvoidingScreen>
-    <ScrollView
+    <KeyboardAvoidingScreen
       contentContainerStyle={[styles.container, { paddingBottom: 20 + insets.bottom }]}
       keyboardShouldPersistTaps="handled"
     >
@@ -85,7 +84,6 @@ export default function TestSetupScreen({ navigation }: Props) {
         <Button title="Back" icon="arrow-back" variant="outlined" onPress={onBack} style={styles.backButton} />
         <Button title="Next" trailingIcon="arrow-forward" onPress={onNext} disabled={!canProceed} style={styles.nextButton} />
       </View>
-    </ScrollView>
     </KeyboardAvoidingScreen>
   );
 }

@@ -19,7 +19,19 @@ const CACHE = FileSystem.cacheDirectory ?? '';
 async function ensureDir(path: string): Promise<void> {
   const info = await FileSystem.getInfoAsync(path);
   if (!info.exists) {
-    await FileSystem.makeDirectoryAsync(path, { intermediates: true });
+    try {
+      await FileSystem.makeDirectoryAsync(path, { intermediates: true });
+    } catch (e) {
+      // Two concurrent callers for the SAME path (a real one: DrugCassetteScanScreen fires a
+      // warm-up mediaDir() call the instant the camera reports ready, while the actual capture
+      // path independently awaits its own mediaDir() call for the same record shortly after) can
+      // both see !info.exists before either has finished creating it -- a classic
+      // check-then-create race. If the directory exists by the time this catch runs, the OTHER
+      // caller won it, which is exactly as good as this one winning; only a genuine failure
+      // (permissions, disk full, etc.) should still surface.
+      const infoAfter = await FileSystem.getInfoAsync(path);
+      if (!infoAfter.exists) throw e;
+    }
   }
 }
 

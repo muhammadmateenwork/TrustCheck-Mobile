@@ -3,7 +3,6 @@ import { View, Text, ScrollView, StyleSheet, Alert, ActivityIndicator } from 're
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { MaterialIcons } from '@expo/vector-icons';
-import * as ScreenCapture from 'expo-screen-capture';
 import { RootStackParamList } from '../navigation/types';
 import { useWorkflow } from '../hooks/WorkflowContext';
 import { STATUS_COMPLETED, STATUS_IN_PROGRESS, donorFullName } from '../models/TestRecord';
@@ -55,6 +54,12 @@ export default function SummaryScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const { record, clear } = useWorkflow();
   const { showToast } = useToast();
+  // Anonymous sessions never persist a record anywhere (see cloudSync.ts's own doc — this mirrors
+  // that same skipped-login behavior) — so this screen skips saveRecord/syncRecord entirely for
+  // them instead of doing that work and then just not showing its result. The PDF itself is still
+  // generated (so "Open PDF" keeps working), just never written into the records store that backs
+  // History/Admin, and never uploaded.
+  const isAnonymous = !!firebaseAuth.currentUser?.isAnonymous;
 
   const [pdfDisplayName, setPdfDisplayName] = useState(
     record.pdfDisplayName && record.pdfDisplayName.trim() !== '' ? record.pdfDisplayName : suggestFileName(record)
@@ -79,15 +84,7 @@ export default function SummaryScreen({ navigation }: Props) {
 
   const revealed = useRef(false);
 
-  // The review/saved summary shows every photo and signature on the record, same sensitivity as
-  // the PDF viewer — block screenshots/recording here too (see PdfViewerScreen's own doc for why
-  // expo-screen-capture is the RN equivalent of the native app's FLAG_SECURE window flag).
-  useEffect(() => {
-    void ScreenCapture.preventScreenCaptureAsync();
-    return () => {
-      void ScreenCapture.allowScreenCaptureAsync();
-    };
-  }, []);
+  // Screenshot/recording prevention is now app-wide (see App.tsx) rather than toggled per-screen.
 
   // Once Saved, any attempt to leave this screen (hardware/gesture back — the explicit "Back to
   // Home" button already means exactly what it says and doesn't need to ask again) should confirm
@@ -114,6 +111,30 @@ export default function SummaryScreen({ navigation }: Props) {
     return unsubscribe;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigation, saved, saving, sendingEmail]);
+
+  // Anonymous equivalent of onSave/onSaved below — generates the PDF (so Open PDF still works)
+  // and reveals the end screen directly, without ever calling saveRecord or syncRecord. This is
+  // also why it's meaningfully faster than the logged-in path: no local JSON write, no cloud-sync
+  // round trip/timeout coordination, just the PDF render itself.
+  const onFinishAnonymous = async () => {
+    setSaving(true);
+    setSavingStatus('Generating report…');
+    setSavingProgress(null);
+    record.status = STATUS_COMPLETED;
+    let pdfError: unknown = null;
+    let generatedPath: string | null = null;
+    try {
+      generatedPath = await generatePdf(record);
+    } catch (e) {
+      pdfError = e;
+    }
+    setPdfPath(generatedPath);
+    setSaving(false);
+    setSaved(true);
+    if (pdfError) {
+      showToast('The PDF report will be generated the next time you open it.', 'info');
+    }
+  };
 
   const onSave = async () => {
     console.log('[Summary] onSave: start, record', record.id);
@@ -192,7 +213,7 @@ export default function SummaryScreen({ navigation }: Props) {
     if (!path || !(await FileSystem.getInfoAsync(path)).exists) {
       try {
         path = await getOrGeneratePdf(record);
-        await saveRecord(record);
+        if (!isAnonymous) await saveRecord(record);
         setPdfPath(path);
       } catch (e) {
         Alert.alert('Could not generate report', String(e));
@@ -239,19 +260,25 @@ export default function SummaryScreen({ navigation }: Props) {
           <View style={styles.savedIconCircle}>
             <MaterialIcons name="check" size={40} color={colors.white} />
           </View>
-          <Text style={styles.savedTitle}>Record Saved</Text>
-          <Text style={styles.savedSubtitle}>This test has been completed.</Text>
+          <Text style={styles.savedTitle}>{isAnonymous ? 'Test Complete' : 'Record Saved'}</Text>
+          <Text style={styles.savedSubtitle}>
+            {isAnonymous ? 'This was a guest session — nothing was saved.' : 'This test has been completed.'}
+          </Text>
 
           <View style={styles.savedInfoCard}>
             <View style={styles.savedInfoRow}>
               <MaterialIcons name="person" size={18} color={colors.textSecondary} style={styles.savedInfoIcon} />
               <Text style={styles.savedInfoText}>{donorFullName(record)}</Text>
             </View>
-            <View style={styles.savedInfoDivider} />
-            <View style={styles.savedInfoRow}>
-              <MaterialIcons name="event" size={18} color={colors.textSecondary} style={styles.savedInfoIcon} />
-              <Text style={styles.savedInfoText}>Saved {formatDateTime(record.updatedAt)}</Text>
-            </View>
+            {!isAnonymous && (
+              <>
+                <View style={styles.savedInfoDivider} />
+                <View style={styles.savedInfoRow}>
+                  <MaterialIcons name="event" size={18} color={colors.textSecondary} style={styles.savedInfoIcon} />
+                  <Text style={styles.savedInfoText}>Saved {formatDateTime(record.updatedAt)}</Text>
+                </View>
+              </>
+            )}
             <View style={styles.savedInfoDivider} />
             <View style={styles.savedInfoRow}>
               <MaterialIcons name="description" size={18} color={colors.textSecondary} style={styles.savedInfoIcon} />
@@ -262,7 +289,7 @@ export default function SummaryScreen({ navigation }: Props) {
           </View>
 
           <Button title="Open PDF" variant="outlined" icon="picture-as-pdf" onPress={onOpenPdf} style={styles.savedButton} />
-          {!firebaseAuth.currentUser?.isAnonymous && (
+          {!isAnonymous && (
             <>
               <Button
                 title={sendingEmail ? 'Sending…' : 'Send Email'}
@@ -287,23 +314,26 @@ export default function SummaryScreen({ navigation }: Props) {
   }
 
   return (
-    <KeyboardAvoidingScreen>
     <View style={styles.screen}>
       <View style={styles.topBar}>
         <Text style={styles.topBarTitle}>Summary</Text>
       </View>
-      <ScrollView
+      <KeyboardAvoidingScreen
         contentContainerStyle={[styles.container, { paddingBottom: 20 + insets.bottom }]}
         keyboardShouldPersistTaps="handled"
       >
         <Text style={styles.title}>Report</Text>
         <Text style={styles.instruction}>
-          Review everything below before saving. Once saved, you can email, open, or share the PDF report.
+          {isAnonymous
+            ? 'Review everything below. This is a guest session — nothing will be saved, but you can still open the PDF report.'
+            : 'Review everything below before saving. Once saved, you can email, open, or share the PDF report.'}
         </Text>
 
         <RecordDetailView record={record} />
 
-        <TextField label="Report file name" value={pdfDisplayName} onChangeText={setPdfDisplayName} style={styles.pdfNameField} />
+        {!isAnonymous && (
+          <TextField label="Report file name" value={pdfDisplayName} onChangeText={setPdfDisplayName} style={styles.pdfNameField} />
+        )}
 
         {saving && (
           <View style={styles.savingRow}>
@@ -324,11 +354,14 @@ export default function SummaryScreen({ navigation }: Props) {
 
         <View style={styles.bottomBar}>
           <Button title="Back" icon="arrow-back" variant="outlined" onPress={() => navigation.goBack()} style={styles.backButton} disabled={saving} />
-          <Button title="Save" trailingIcon="check" onPress={onSave} loading={saving} style={styles.nextButton} />
+          {isAnonymous ? (
+            <Button title="End Test" trailingIcon="check" onPress={onFinishAnonymous} loading={saving} style={styles.nextButton} />
+          ) : (
+            <Button title="Save" trailingIcon="check" onPress={onSave} loading={saving} style={styles.nextButton} />
+          )}
         </View>
-      </ScrollView>
+      </KeyboardAvoidingScreen>
     </View>
-    </KeyboardAvoidingScreen>
   );
 }
 

@@ -216,14 +216,11 @@ async function buildHtml(record: TestRecord, emailMode = false): Promise<string>
   parts.push(labelValue('Supervisor on site', nullToDash(record.testSetup.supervisorOnSite)));
   parts.push(labelValue('Support person', nullToDash(record.testSetup.supportPerson)));
   parts.push(labelValue('Result recipient', nullToDash(record.testSetup.resultRecipient)));
-  parts.push(labelValue('Recipient e-mail', nullToDash(record.testSetup.recipientEmail)));
-  parts.push(labelValue('Location', nullToDash(record.testSetup.location)));
 
   // ---- Operator Consent ----
   parts.push(sectionTitle('Operator Consent'));
   parts.push(labelValue('Operator name', nullToDash(record.operatorConsent.operatorName)));
   parts.push(labelValue('Operator ID', nullToDash(record.operatorConsent.operatorId)));
-  parts.push(labelValue('Phone number', nullToDash(record.operatorConsent.phoneNumber)));
   parts.push(
     labelValue(
       'NZQA qualified',

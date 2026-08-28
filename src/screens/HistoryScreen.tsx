@@ -33,6 +33,8 @@ export default function HistoryScreen({ navigation }: Props) {
 
   const refreshMenuVisibility = useCallback(() => {
     const user = firebaseAuth.currentUser;
+    // TEMPORARY diagnostic -- see SetupScreen's own matching log for why.
+    console.log('[History] currentUser =', user ? user.uid : null, 'isAnonymous =', user?.isAnonymous, 'email =', user?.email);
     setRealOperatorLoggedIn(!!user && !user.isAnonymous);
   }, []);
 
@@ -74,7 +76,7 @@ export default function HistoryScreen({ navigation }: Props) {
           try {
             await signOut(firebaseAuth);
             await ensureAnonymousSession();
-            resetTo(navigation, 'Setup');
+            resetTo(navigation, 'Setup', { justSignedOut: true });
           } finally {
             setSigningOut(false);
           }
@@ -98,7 +100,7 @@ export default function HistoryScreen({ navigation }: Props) {
         </View>
         <Text style={styles.homeTitle}>TrustCheck</Text>
         <Text style={styles.homeSubtitle}>
-          {realOperatorLoggedIn && operatorEmail ? `Signed in as ${operatorEmail}` : 'Guest session — nothing here is saved to your account'}
+          {realOperatorLoggedIn && operatorEmail ? `Signed in as ${operatorEmail}` : 'Guest session'}
         </Text>
         <Text style={styles.homeText}>Tap New Test below to start a donor drug &amp; alcohol test.</Text>
       </View>

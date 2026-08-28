@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Animated, ActivityIndicator } from 'react-native';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
-import * as ScreenCapture from 'expo-screen-capture';
 import * as FileSystem from 'expo-file-system/legacy';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
@@ -15,9 +14,8 @@ type Props = NativeStackScreenProps<RootStackParamList, 'PdfViewer'>;
  * operator/admin, deliberately not "hand off to whatever PDF app is installed." There's no
  * share/export affordance anywhere on this screen.
  *
- * Screenshot/recording prevention uses expo-screen-capture (preventScreenCaptureAsync), the RN
- * cross-platform equivalent of the native app's FLAG_SECURE window flag — same intent (no
- * screenshots, no screen recording of report contents), different underlying API.
+ * Screenshot/recording prevention is app-wide (see App.tsx's expo-screen-capture call) rather than
+ * toggled on this screen specifically.
  *
  * Rendering went through three approaches before landing here — see pdfViewerHtml.ts's own doc
  * for the full account of why a raw file:// source, a content:// source, and a base64 data: URI
@@ -37,13 +35,6 @@ export default function PdfViewerScreen({ route }: Props) {
   const [webviewReady, setWebviewReady] = useState(false);
   const [rendered, setRendered] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-
-  useEffect(() => {
-    void ScreenCapture.preventScreenCaptureAsync();
-    return () => {
-      void ScreenCapture.allowScreenCaptureAsync();
-    };
-  }, []);
 
   useEffect(() => {
     setPdfBase64(null);

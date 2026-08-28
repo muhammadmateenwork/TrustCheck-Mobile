@@ -1,24 +1,27 @@
 import React from 'react';
 import { Modal, View, Text, StyleSheet, Pressable, ScrollView } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { DownloadJob, useDownloadJobs, pauseJob, resumeJob, cancelJob, dismissJob } from '../services/downloadQueue';
-import { shareResult } from '../services/reportExport';
+import { DownloadJob, useDownloadJobs, pauseJob, resumeJob, cancelJob, dismissJob, markJobSaved } from '../services/downloadQueue';
+import { saveResultToDownloads } from '../services/reportExport';
 import { useToast } from './Toast';
 import { colors } from '../theme';
 
-/** Admin's bulk-download job list — pause/resume/cancel per job, and Share once a job finishes.
+/** Admin's bulk-download job list — pause/resume/cancel per job, and Save once a job finishes.
  *  See downloadQueue.ts for how jobs actually run (queued, one at a time, backed by a real Android
  *  foreground service so they keep going even if this panel — or the whole app — is closed). */
 export default function DownloadsPanel({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const jobs = useDownloadJobs();
   const { showToast } = useToast();
 
-  const onShare = async (job: DownloadJob) => {
+  const onSave = async (job: DownloadJob) => {
     if (!job.resultPath) return;
     try {
-      await shareResult(job.resultPath, job.isZip);
+      const fileName = job.resultPath.split('/').pop() ?? `TrustCheck_Report_${job.id}${job.isZip ? '.zip' : '.pdf'}`;
+      const outcome = await saveResultToDownloads(job.resultPath, job.isZip, fileName);
+      markJobSaved(job.id);
+      showToast(outcome === 'saved' ? 'Saved to Downloads' : 'Shared', 'success');
     } catch (e) {
-      showToast(`Could not share: ${(e as Error).message}`, 'error');
+      showToast(`Could not save: ${(e as Error).message}`, 'error');
     }
   };
 
@@ -38,7 +41,7 @@ export default function DownloadsPanel({ visible, onClose }: { visible: boolean;
             ) : (
               [...jobs]
                 .sort((a, b) => b.createdAt - a.createdAt)
-                .map((job) => <JobRow key={job.id} job={job} onShare={() => void onShare(job)} />)
+                .map((job) => <JobRow key={job.id} job={job} onSave={() => void onSave(job)} />)
             )}
           </ScrollView>
         </View>
@@ -47,7 +50,7 @@ export default function DownloadsPanel({ visible, onClose }: { visible: boolean;
   );
 }
 
-function JobRow({ job, onShare }: { job: DownloadJob; onShare: () => void }) {
+function JobRow({ job, onSave }: { job: DownloadJob; onSave: () => void }) {
   const percent = job.total > 0 ? Math.round((job.completed / job.total) * 100) : 0;
   const inProgress = job.status === 'running' || job.status === 'paused' || job.status === 'queued';
 
@@ -77,7 +80,12 @@ function JobRow({ job, onShare }: { job: DownloadJob; onShare: () => void }) {
         {job.status === 'running' && <ActionButton icon="pause" label="Pause" onPress={() => pauseJob(job.id)} />}
         {job.status === 'paused' && <ActionButton icon="play-arrow" label="Resume" onPress={() => resumeJob(job.id)} />}
         {inProgress && <ActionButton icon="close" label="Cancel" onPress={() => cancelJob(job.id)} />}
-        {job.status === 'completed' && <ActionButton icon="share" label="Share" onPress={onShare} primary />}
+        {job.status === 'completed' &&
+          (job.saved ? (
+            <ActionButton icon="check" label="Saved" onPress={onSave} />
+          ) : (
+            <ActionButton icon="download" label="Save" onPress={onSave} primary />
+          ))}
         {!inProgress && <ActionButton icon="delete-outline" label="Remove" onPress={() => dismissJob(job.id)} />}
       </View>
     </View>

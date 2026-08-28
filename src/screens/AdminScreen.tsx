@@ -3,7 +3,6 @@ import {
   View,
   Text,
   TextInput,
-  ScrollView,
   FlatList,
   StyleSheet,
   Pressable,
@@ -11,8 +10,6 @@ import {
   Alert,
   ActivityIndicator,
   RefreshControl,
-  KeyboardAvoidingView,
-  Platform,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { QueryDocumentSnapshot, DocumentData } from 'firebase/firestore';
@@ -50,6 +47,7 @@ import FilterModal from '../components/FilterModal';
 import RadioGroup from '../components/RadioGroup';
 import Button from '../components/Button';
 import ChangePasswordModal from '../components/ChangePasswordModal';
+import KeyboardAvoidingScreen from '../components/KeyboardAvoidingScreen';
 import { useToast } from '../components/Toast';
 import { colors } from '../theme';
 
@@ -363,7 +361,7 @@ export default function AdminScreen({ navigation }: Props) {
           try {
             await signOut(firebaseAuth);
             await ensureAnonymousSession();
-            resetTo(navigation, 'Setup');
+            resetTo(navigation, 'Setup', { justSignedOut: true });
           } finally {
             setSigningOut(false);
           }
@@ -796,25 +794,23 @@ function AddOperatorModal({
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <KeyboardAvoidingView style={styles.addOperatorBackdrop} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <ScrollView contentContainerStyle={styles.addOperatorScrollContent} keyboardShouldPersistTaps="handled">
-          <View style={styles.progressCard}>
-            <Text style={styles.progressTitle}>Add Operator</Text>
-            <TextField label="Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" startIcon="email" />
-            <TextField
-              label="Password"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry={!showPassword}
-              startIcon="lock"
-              endIcon={showPassword ? 'visibility-off' : 'visibility'}
-              onEndIconPress={() => setShowPassword((v) => !v)}
-            />
-            <Button title="Add Operator" onPress={submit} loading={loading} style={styles.addOperatorSubmit} />
-            <Button title="Cancel" variant="text" onPress={onClose} style={styles.addOperatorCancel} />
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+      <KeyboardAvoidingScreen style={styles.addOperatorBackdrop} contentContainerStyle={styles.addOperatorScrollContent} keyboardShouldPersistTaps="handled">
+        <View style={styles.progressCard}>
+          <Text style={styles.progressTitle}>Add Operator</Text>
+          <TextField label="Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" startIcon="email" />
+          <TextField
+            label="Password"
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry={!showPassword}
+            startIcon="lock"
+            endIcon={showPassword ? 'visibility-off' : 'visibility'}
+            onEndIconPress={() => setShowPassword((v) => !v)}
+          />
+          <Button title="Add Operator" onPress={submit} loading={loading} style={styles.addOperatorSubmit} />
+          <Button title="Cancel" variant="text" onPress={onClose} style={styles.addOperatorCancel} />
+        </View>
+      </KeyboardAvoidingScreen>
     </Modal>
   );
 }

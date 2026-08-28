@@ -20,6 +20,11 @@ export interface DownloadJob {
   isZip: boolean;
   error: string | null;
   createdAt: number;
+  /** True once saveResultToDownloads has actually succeeded for this job (saved to a public
+   *  folder on Android, or handed off via the iOS share sheet) — lives on the job itself, not
+   *  local component state, so the Downloads panel still shows "Saved" if the operator closes and
+   *  reopens it rather than reverting back to "Save" just because the panel remounted. */
+  saved: boolean;
 }
 
 /**
@@ -95,11 +100,16 @@ export function enqueueDownload(summaries: TestRecord[], mediaUrlsByRecordId: Re
     isZip: summaries.length > 1,
     error: null,
     createdAt: Date.now(),
+    saved: false,
   };
   jobs = [...jobs, job];
   notify();
   void ensureRunnerStarted();
   return id;
+}
+
+export function markJobSaved(id: string): void {
+  updateJob(id, { saved: true });
 }
 
 export function pauseJob(id: string): void {

@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
 import { MaterialIcons } from '@expo/vector-icons';
+import { CommonActions } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
 import { colors } from '../theme';
@@ -10,12 +11,13 @@ type Props = NativeStackScreenProps<RootStackParamList, 'QrScan'>;
 
 /**
  * Mirrors QrScanActivity.java — a dedicated camera screen for scanning a test kit's QR/Data
- * Matrix/Aztec code. Delivers the raw scanned text back to TestKitScreen by navigating back to
- * it with a merged param update (React Navigation params must stay serializable, so this is used
- * instead of a callback prop — see types.ts's own note on TestKit's params) — the RN equivalent
- * of the native ActivityResultLauncher round trip.
+ * Matrix/Aztec code. Delivers the raw scanned text back to TestKitScreen via setParams(source:
+ * returnToKey) + goBack() — see DrugCassetteScan's own param doc (navigation/types.ts) for why
+ * this replaced an earlier navigate({..., merge: true}) pattern: that turned out to not reliably
+ * collapse back onto an existing screen in a multi-hop stack, confirmed via real on-device
+ * nav-stack logging on the equivalent DrugCassetteScan flow.
  */
-export default function QrScanScreen({ navigation }: Props) {
+export default function QrScanScreen({ navigation, route }: Props) {
   const [permission, requestPermission] = useCameraPermissions();
   const delivered = useRef(false);
 
@@ -29,11 +31,11 @@ export default function QrScanScreen({ navigation }: Props) {
   const onScanned = (result: BarcodeScanningResult) => {
     if (delivered.current) return;
     delivered.current = true;
-    navigation.navigate({
-      name: 'TestKit',
-      params: { scannedQrRaw: result.data, scannedAt: Date.now() },
-      merge: true,
+    navigation.dispatch({
+      ...CommonActions.setParams({ scannedQrRaw: result.data, scannedAt: Date.now() }),
+      source: route.params.returnToKey,
     });
+    navigation.goBack();
   };
 
   if (!permission) return null;

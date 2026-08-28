@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, Image, StyleSheet, ScrollView, Pressable, KeyboardAvoidingView, Platform } from 'react-native';
+import { Text, Image, StyleSheet, Pressable } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
@@ -9,6 +10,7 @@ import { getRole, ROLE_ADMIN, OPERATOR_EMAIL_DOMAIN, ensureAnonymousSession } fr
 import TextField from '../components/TextField';
 import Button from '../components/Button';
 import FormSection from '../components/FormSection';
+import KeyboardAvoidingScreen from '../components/KeyboardAvoidingScreen';
 import { colors } from '../theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Login'>;
@@ -24,6 +26,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Login'>;
  * which is the only way an operator account can ever be created in the first place.
  */
 export default function LoginScreen({ navigation }: Props) {
+  const insets = useSafeAreaInsets();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -70,12 +73,11 @@ export default function LoginScreen({ navigation }: Props) {
   };
 
   return (
-    <KeyboardAvoidingView
+    <KeyboardAvoidingScreen
       style={styles.flex}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 24}
+      contentContainerStyle={[styles.container, { paddingBottom: 20 + insets.bottom }]}
+      keyboardShouldPersistTaps="handled"
     >
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <Image source={require('../../assets/logo.png')} style={styles.logo} resizeMode="contain" />
         <Text style={styles.title}>Operator Login</Text>
         <Text style={styles.hint}>
@@ -110,8 +112,7 @@ export default function LoginScreen({ navigation }: Props) {
         <Pressable onPress={() => navigation.navigate('ForgotPassword')} style={styles.forgot}>
           <Text style={styles.forgotText}>Forgot password?</Text>
         </Pressable>
-      </ScrollView>
-    </KeyboardAvoidingView>
+    </KeyboardAvoidingScreen>
   );
 }
 

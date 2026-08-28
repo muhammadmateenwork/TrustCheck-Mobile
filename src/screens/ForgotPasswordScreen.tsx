@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { Text, StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { httpsCallable } from 'firebase/functions';
 import { functions } from '../services/firebase';
 import { isValidEmail } from '../models/TestSetup';
@@ -24,6 +25,7 @@ import { colors } from '../theme';
  * accounts.
  */
 export default function ForgotPasswordScreen() {
+  const insets = useSafeAreaInsets();
   const [email, setEmail] = useState('');
   const [message, setMessage] = useState<{ text: string; isError: boolean } | null>(null);
   const [loading, setLoading] = useState(false);
@@ -53,8 +55,10 @@ export default function ForgotPasswordScreen() {
   };
 
   return (
-    <KeyboardAvoidingScreen>
-    <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+    <KeyboardAvoidingScreen
+      contentContainerStyle={[styles.container, { paddingBottom: 20 + insets.bottom }]}
+      keyboardShouldPersistTaps="handled"
+    >
       <Text style={styles.title}>Reset your password</Text>
       <Text style={styles.hint}>
         Enter your account email and we&apos;ll send you a link to set a new password.
@@ -78,7 +82,6 @@ export default function ForgotPasswordScreen() {
 
         <Button title="Send Reset Link" onPress={submit} loading={loading} style={styles.submit} />
       </FormSection>
-    </ScrollView>
     </KeyboardAvoidingScreen>
   );
 }

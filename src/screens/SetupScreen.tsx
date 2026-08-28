@@ -18,11 +18,21 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Setup'>;
  * underneath. Only show the choice at all when there's genuinely nothing to skip past — i.e. no
  * real login already active.
  */
-export default function SetupScreen({ navigation }: Props) {
-  const [checkingSession, setCheckingSession] = useState(true);
+export default function SetupScreen({ navigation, route }: Props) {
+  const justSignedOut = route.params?.justSignedOut ?? false;
+  const [checkingSession, setCheckingSession] = useState(!justSignedOut);
 
   useEffect(() => {
+    // Skip the auto-redirect entirely right after an explicit Sign Out -- see this param's own
+    // doc in navigation/types.ts for why re-deriving session state here specifically races the
+    // signOut()+signInAnonymously() sequence that just ran.
+    if (justSignedOut) return;
     const user = firebaseAuth.currentUser;
+    // TEMPORARY diagnostic -- a reported bug ("test was performed while signed in as an operator,
+    // but after a close/reopen it reads as guest mode and Home shows Login") needs the ACTUAL auth
+    // state at the moment this screen decides where to send the operator, not a guess. Remove once
+    // confirmed and fixed.
+    console.log('[Setup] currentUser =', user ? user.uid : null, 'isAnonymous =', user?.isAnonymous, 'email =', user?.email);
     if (user && !user.isAnonymous) {
       (async () => {
         const role = await getRole();
@@ -31,7 +41,7 @@ export default function SetupScreen({ navigation }: Props) {
       return;
     }
     setCheckingSession(false);
-  }, [navigation]);
+  }, [navigation, justSignedOut]);
 
   if (checkingSession) return null;
 

@@ -53,7 +53,16 @@ export default function RootNavigator() {
       <Stack.Screen
         name="DrugCassetteScan"
         component={DrugCassetteScanScreen}
-        options={{ title: 'Scan Cassette', presentation: 'fullScreenModal', headerShown: false }}
+        // Deliberately NOT presentation: 'fullScreenModal' (see this file's own git history) --
+        // confirmed via real on-device nav-stack logging that returning from a fullScreenModal
+        // screen via navigate({..., merge: true}) does not collapse back onto the ALREADY-PRESENT
+        // instance of the presenting screen the way it does for a plain push screen; it pushes a
+        // SECOND instance on top of the modal instead. Every retake/rescan therefore grew the
+        // stack by one DrugTestPicture+DrugCassetteScan pair instead of staying flat -- confirmed
+        // repeatedly today, the stack was 4 pairs deep after 4 retries in one session. A plain
+        // push screen (still headerShown: false, so visually still a full-bleed camera view) dedupes
+        // correctly by default and was the actual fix, not a workaround.
+        options={{ title: 'Scan Cassette', headerShown: false }}
       />
       <Stack.Screen name="DrugResult" component={DrugResultScreen} options={{ title: 'Drug Test Result' }} />
       <Stack.Screen name="AlcoholTest" component={AlcoholTestScreen} options={{ title: 'Alcohol Test' }} />
@@ -65,7 +74,10 @@ export default function RootNavigator() {
       <Stack.Screen
         name="QrScan"
         component={QrScanScreen}
-        options={{ title: 'Scan QR', presentation: 'fullScreenModal', headerShown: false }}
+        // See DrugCassetteScan's own comment on why this isn't presentation: 'fullScreenModal' --
+        // same navigate({...merge:true}) return pattern (see QrScanScreen), same stack-duplication
+        // bug on modal-to-push returns.
+        options={{ title: 'Scan QR', headerShown: false }}
       />
     </Stack.Navigator>
   );

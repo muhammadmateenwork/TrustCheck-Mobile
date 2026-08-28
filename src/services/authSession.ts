@@ -41,6 +41,17 @@ export async function getRole(): Promise<string | null> {
 }
 
 export async function ensureAnonymousSession(): Promise<void> {
+  // initializeAuth's AsyncStorage-backed persistence (see firebase.ts) rehydrates a previously
+  // signed-in user ASYNCHRONOUSLY -- firebaseAuth.currentUser can still read null for a brief
+  // window right after app launch even when a real operator's session IS persisted and about to
+  // load back in. Checking currentUser here without first awaiting authStateReady() raced that
+  // rehydration on a real device: a genuinely logged-in operator who fully closed and reopened the
+  // app could have this fire first, see no current user yet, and sign in anonymously -- silently
+  // replacing the about-to-be-restored real session, which is exactly what a client report ("test
+  // was performed as guest mode" after a close/reopen, "Go to Home" then showing Login) matches.
+  // authStateReady() resolves only once Firebase's own initial state determination (including
+  // that persisted-session read) has actually finished, so currentUser is trustworthy after it.
+  await firebaseAuth.authStateReady();
   if (firebaseAuth.currentUser) return;
   try {
     await signInAnonymously(firebaseAuth);

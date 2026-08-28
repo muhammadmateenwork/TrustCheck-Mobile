@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, Image, ScrollView, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { MaterialIcons } from '@expo/vector-icons';
 import { RootStackParamList } from '../navigation/types';
 import { useWorkflow } from '../hooks/WorkflowContext';
 import Button from '../components/Button';
@@ -75,12 +74,12 @@ export default function DrugTestPictureScreen({ navigation, route }: Props) {
   // screen itself no longer asks again (see DrugCassetteScan's own param doc).
   const onScanKit = async () => {
     await saveDraft();
-    navigation.navigate('DrugCassetteScan', { mode: 'scan' });
+    navigation.navigate('DrugCassetteScan', { mode: 'scan', returnToKey: route.key });
   };
 
   const onTakePicture = async () => {
     await saveDraft();
-    navigation.navigate('DrugCassetteScan', { mode: 'manual' });
+    navigation.navigate('DrugCassetteScan', { mode: 'manual', returnToKey: route.key });
   };
 
   return (
@@ -91,16 +90,11 @@ export default function DrugTestPictureScreen({ navigation, route }: Props) {
       {notice && <Text style={styles.notice}>{notice}</Text>}
 
       <FormSection>
-        <View style={styles.photoBox}>
-          {photoPath ? (
+        {photoPath && (
+          <View style={styles.photoBox}>
             <Image source={{ uri: photoPath }} style={styles.photo} resizeMode="contain" />
-          ) : (
-            <>
-              <MaterialIcons name="camera-alt" size={40} color={colors.textSecondary} />
-              <Text style={styles.emptyText}>No photo taken yet</Text>
-            </>
-          )}
-        </View>
+          </View>
+        )}
 
         {detectionFailed && (
           <Text style={styles.failedText}>
@@ -155,7 +149,6 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   photo: { width: '100%', height: '100%' },
-  emptyText: { color: colors.textSecondary, fontSize: 13, marginTop: 8 },
   failedText: { fontSize: 14, color: colors.brandDanger, marginTop: 12 },
   actionRow: { flexDirection: 'row', gap: 12, marginTop: 16 },
   actionButton: { flex: 1 },

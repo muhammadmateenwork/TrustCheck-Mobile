@@ -41,15 +41,12 @@ export default function RecordDetailView({ record }: { record: TestRecord }) {
         <Row label="Reason for test" value={record.testSetup.reasonForTest} />
         <Row label="Supervisor on site" value={record.testSetup.supervisorOnSite} />
         <Row label="Support person" value={record.testSetup.supportPerson} />
-        <Row label="Result recipient" value={record.testSetup.resultRecipient} />
-        <Row label="Recipient e-mail" value={record.testSetup.recipientEmail} />
-        <Row label="Location" value={record.testSetup.location} last />
+        <Row label="Result recipient" value={record.testSetup.resultRecipient} last />
       </Section>
 
       <Section title="Operator Consent">
         <Row label="Operator name" value={record.operatorConsent.operatorName} />
         <Row label="Operator ID" value={record.operatorConsent.operatorId} />
-        <Row label="Phone number" value={record.operatorConsent.phoneNumber} />
         <Row
           label="NZQA qualified"
           value={

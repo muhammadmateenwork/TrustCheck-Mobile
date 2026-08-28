@@ -14,7 +14,7 @@ export interface StripReading {
   control: LineReading;
   substances: Record<string, LineReading>;
   /** Whether this strip's membrane window was actually located by the lightness-based search
-   *  (see cassetteAnalyzerHtml.ts#analyzeStrip), as opposed to falling back to a fixed template
+   *  (see realtimeCassetteAnalyzer.ts#analyzeStrip), as opposed to falling back to a fixed template
    *  fraction because nothing distinct stood out. See isConfidentlyDetected's own doc for why
    *  this matters. */
   located: boolean;

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, Alert, Pressable } from 'react-native';
+import { View, Text, StyleSheet, Alert, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
@@ -89,7 +89,7 @@ export default function TestKitScreen({ navigation, route }: Props) {
       r.testKitInfo.lotNo = lotNo.trim();
     });
     await saveDraft();
-    navigation.navigate('QrScan');
+    navigation.navigate('QrScan', { returnToKey: route.key });
   };
 
   // Persists whatever's currently filled in regardless of validity — used on both Next and Back
@@ -117,8 +117,7 @@ export default function TestKitScreen({ navigation, route }: Props) {
   };
 
   return (
-    <KeyboardAvoidingScreen>
-    <ScrollView
+    <KeyboardAvoidingScreen
       contentContainerStyle={[styles.container, { paddingBottom: 20 + insets.bottom }]}
       keyboardShouldPersistTaps="handled"
     >
@@ -148,7 +147,6 @@ export default function TestKitScreen({ navigation, route }: Props) {
         <Button title="Back" icon="arrow-back" variant="outlined" onPress={onBack} style={styles.backButton} />
         <Button title="Next" trailingIcon="arrow-forward" onPress={onNext} disabled={!canProceed} style={styles.nextButton} />
       </View>
-    </ScrollView>
     </KeyboardAvoidingScreen>
   );
 }

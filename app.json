@@ -40,7 +40,23 @@
           "backgroundColor": "#0B4F6C"
         }
       ],
-      "./plugins/withBackgroundActionsForegroundServiceType.js"
+      "./plugins/withBackgroundActionsForegroundServiceType.js",
+      [
+        "react-native-vision-camera",
+        {
+          "cameraPermissionText": "TrustCheck needs camera access to scan drug test cassettes.",
+          "enableMicrophonePermission": false,
+          "enableCodeScanner": false
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 26
+          }
+        }
+      ]
     ],
     "extra": {
       "eas": {

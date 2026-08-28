@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, Alert } from 'react-native';
+import { View, Text, StyleSheet, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
@@ -165,8 +165,7 @@ export default function OperatorConsentScreen({ navigation }: Props) {
   };
 
   return (
-    <KeyboardAvoidingScreen>
-    <ScrollView
+    <KeyboardAvoidingScreen
       contentContainerStyle={[styles.container, { paddingBottom: 20 + insets.bottom }]}
       scrollEnabled={scrollEnabled}
       keyboardShouldPersistTaps="handled"
@@ -236,7 +235,6 @@ export default function OperatorConsentScreen({ navigation }: Props) {
         <Button title="Back" icon="arrow-back" variant="outlined" onPress={onBack} style={styles.backButton} />
         <Button title="Next" trailingIcon="arrow-forward" onPress={onNext} disabled={!canProceed} style={styles.nextButton} />
       </View>
-    </ScrollView>
     </KeyboardAvoidingScreen>
   );
 }

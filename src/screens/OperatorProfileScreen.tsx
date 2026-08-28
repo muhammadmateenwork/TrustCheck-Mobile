@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet } from 'react-native';
+import { Text, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
@@ -22,8 +22,8 @@ const QUALIFICATION_OPTIONS: RadioOption<'yes' | 'no'>[] = [
 ];
 
 /**
- * An operator can view and update their own profile here — name, ID, qualification, phone — but
- * there is deliberately no way to delete the account from this screen, matching
+ * An operator can view and update their own profile here — name, ID, qualification — but there
+ * is deliberately no way to delete the account from this screen, matching
  * OperatorProfileFragment.java: accounts are provisioned by whoever administers the app, so their
  * lifecycle is managed the same way, outside the app.
  */
@@ -33,10 +33,15 @@ export default function OperatorProfileScreen({ navigation }: Props) {
   const user = firebaseAuth.currentUser;
   const [name, setName] = useState('');
   const [operatorId, setOperatorId] = useState('');
-  const [phone, setPhone] = useState('');
   const [qualification, setQualification] = useState<'yes' | 'no' | null>(null);
   const [saving, setSaving] = useState(false);
   const [changePasswordVisible, setChangePasswordVisible] = useState(false);
+
+  // Phone number is no longer collected on this screen, but the cloud profile document still has
+  // its own phoneNumber field (shared with OperatorConsent's own carry-forward, same reasoning as
+  // that screen) — this just preserves whatever was already there so saving here doesn't blank it
+  // out. Never shown or edited here.
+  const existingPhoneNumber = useRef<string | null>(null);
 
   // fetchOperatorProfile may call its onLoaded callback twice for the same call — once from
   // cache, once from a background server refresh (see that function's own doc) — so an edit made
@@ -55,7 +60,7 @@ export default function OperatorProfileScreen({ navigation }: Props) {
         if (!profile || userEditedFields.current) return;
         setName(profile.operatorName ?? '');
         setOperatorId(profile.operatorId ?? '');
-        setPhone(profile.phoneNumber ?? '');
+        existingPhoneNumber.current = profile.phoneNumber ?? null;
         if (profile.qualificationAvailable != null) {
           setQualification(profile.qualificationAvailable ? 'yes' : 'no');
         }
@@ -75,7 +80,7 @@ export default function OperatorProfileScreen({ navigation }: Props) {
     setter(v);
   };
 
-  const isValid = name.trim() !== '' && operatorId.trim() !== '' && phone.trim() !== '' && qualification != null;
+  const isValid = name.trim() !== '' && operatorId.trim() !== '' && qualification != null;
 
   const onSave = async () => {
     if (!user || !isValid) return;
@@ -84,7 +89,7 @@ export default function OperatorProfileScreen({ navigation }: Props) {
       await saveOperatorProfile(user.uid, {
         operatorName: name.trim(),
         operatorId: operatorId.trim(),
-        phoneNumber: phone.trim(),
+        phoneNumber: existingPhoneNumber.current,
         qualificationAvailable: qualification === 'yes',
         email: user.email,
         updatedAt: Date.now(),
@@ -99,8 +104,7 @@ export default function OperatorProfileScreen({ navigation }: Props) {
   };
 
   return (
-    <KeyboardAvoidingScreen>
-    <ScrollView
+    <KeyboardAvoidingScreen
       contentContainerStyle={[styles.container, { paddingBottom: 20 + insets.bottom }]}
       keyboardShouldPersistTaps="handled"
     >
@@ -109,7 +113,6 @@ export default function OperatorProfileScreen({ navigation }: Props) {
       <FormSection>
         <TextField label="Operator name" value={name} onChangeText={markEdited(setName)} startIcon="person" />
         <TextField label="Operator ID" value={operatorId} onChangeText={markEdited(setOperatorId)} startIcon="badge" />
-        <TextField label="Phone number" value={phone} onChangeText={markEdited(setPhone)} keyboardType="phone-pad" startIcon="phone" />
 
         <Text style={styles.qualificationLabel}>Qualification available?</Text>
         <RadioGroup options={QUALIFICATION_OPTIONS} value={qualification} onChange={markEdited(setQualification)} horizontal />
@@ -128,7 +131,6 @@ export default function OperatorProfileScreen({ navigation }: Props) {
       </Text>
 
       <ChangePasswordModal visible={changePasswordVisible} onClose={() => setChangePasswordVisible(false)} />
-    </ScrollView>
     </KeyboardAvoidingScreen>
   );
 }
