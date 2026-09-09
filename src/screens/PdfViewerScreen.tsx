@@ -14,9 +14,6 @@ type Props = NativeStackScreenProps<RootStackParamList, 'PdfViewer'>;
  * operator/admin, deliberately not "hand off to whatever PDF app is installed." There's no
  * share/export affordance anywhere on this screen.
  *
- * Screenshot/recording prevention is app-wide (see App.tsx's expo-screen-capture call) rather than
- * toggled on this screen specifically.
- *
  * Rendering went through three approaches before landing here — see pdfViewerHtml.ts's own doc
  * for the full account of why a raw file:// source, a content:// source, and a base64 data: URI
  * source were each dead ends on-device (ERR_ACCESS_DENIED for the first two — one setting

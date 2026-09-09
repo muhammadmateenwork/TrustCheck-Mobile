@@ -1,9 +1,8 @@
 import 'react-native-gesture-handler';
 import React, { useEffect, useRef, useState } from 'react';
-import { Alert, AppState, AppStateStatus } from 'react-native';
+import { AppState, AppStateStatus } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
-import * as ScreenCapture from 'expo-screen-capture';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer, NavigationState } from '@react-navigation/native';
@@ -16,20 +15,6 @@ import { firebaseAuth } from './src/services/firebase';
 import { startAutoSync } from './src/services/autoSync';
 import { saveNavigationState, loadNavigationState, markBackgrounded } from './src/services/navigationPersistence';
 import './src/services/firebase'; // initializes the shared Firebase app on import
-
-// App-wide FLAG_SECURE equivalent -- blocks screenshots/screen recording everywhere, not just on
-// the two screens (Summary, PdfViewer) that used to call this themselves. Set once here, for the
-// app's entire lifetime, rather than per-screen: those two screens previously called
-// allowScreenCaptureAsync() on unmount, which would have UNDONE this app-wide block the moment the
-// operator navigated away from them -- removed in favor of this single, permanent call.
-//
-// PLATFORM DIFFERENCE (confirmed via expo-screen-capture's own docs, not assumed): this call is a
-// genuine, OS-level block on Android (screenshots come back blank/refused), but iOS has no API for
-// any app to prevent a screenshot at all -- preventScreenCaptureAsync() is a no-op there. The
-// useScreenshotListener call below is the actual iOS mitigation available: it can't stop the
-// screenshot, but it detects one was taken and warns the operator, which is the closest iOS
-// equivalent to "protect this donor data from being captured" that the platform allows.
-void ScreenCapture.preventScreenCaptureAsync();
 
 // Keeps the native splash screen (see app.json's expo-splash-screen plugin config) on screen
 // until hideAsync() below, instead of it disappearing the instant the first native frame draws —
@@ -91,13 +76,6 @@ export default function App() {
     });
     return () => subscription.remove();
   }, []);
-
-  // No-op on Android (that platform's screenshots are already genuinely blocked above, so this
-  // listener never fires there) -- on iOS, this is the actual protection: since the OS won't let
-  // any app block the screenshot itself, at least make it visible that donor data was captured.
-  ScreenCapture.useScreenshotListener(() => {
-    Alert.alert('Screenshot detected', 'This screen may contain sensitive donor information.');
-  });
 
   // Native splash screen (see SplashScreen.hideAsync above) is still covering the screen at this
   // point, so rendering nothing here has no visible effect -- it just avoids NavigationContainer
