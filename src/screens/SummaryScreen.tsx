@@ -84,8 +84,6 @@ export default function SummaryScreen({ navigation }: Props) {
 
   const revealed = useRef(false);
 
-  // Screenshot/recording prevention is now app-wide (see App.tsx) rather than toggled per-screen.
-
   // Once Saved, any attempt to leave this screen (hardware/gesture back — the explicit "Back to
   // Home" button already means exactly what it says and doesn't need to ask again) should confirm
   // first rather than silently popping back into the now-finalized wizard. While a save or email
