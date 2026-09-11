@@ -272,12 +272,13 @@ export interface DateCount {
 }
 
 export interface TestSummaryResult {
-  /** Count after every active filter (operator, date range, reason, drug, alcohol) is applied
+  /** Count after every active filter (operator, date range, reason(s), drug, alcohol) is applied
    *  together — the one number every other value on this result is consistent with. */
   total: number;
-  /** One row per reason with its own count, or null when reasonForTest narrows to a single
-   *  reason — a 6-row table that's five zeroes and the one already-selected reason isn't an
-   *  informative "breakdown", so it's omitted rather than sent as a degenerate table. */
+  /** One row per selected reason with its own count — every reason when none are selected ("all
+   *  reasons"), just the chosen subset when 2+ are selected, or null when exactly one reason is
+   *  selected (a 1-row "breakdown" that's just `total` again isn't informative, so it's omitted
+   *  rather than sent as a degenerate table). */
   byReason: ReasonCount[] | null;
   byDate: DateCount[];
   /** 'day' when both ends of the date range are set (every calendar day in the range, including
@@ -303,12 +304,14 @@ export type SummaryResultFilter = 'ALL' | 'NEGATIVE' | 'NON_NEGATIVE';
  * why every filter (including a specific operatorEmail, admin-only) is ANDed together in that one
  * place rather than reimplemented per-screen.
  *
+ * @param reasonsForTest zero or more reasons to narrow to — an empty array means "all reasons",
+ *   matching every other filter's "empty/null means don't filter on this" convention.
  * @param operatorEmail narrows to one specific operator — admin-only, rejected server-side for a
  *   non-admin caller. The operator's own screen never sets this (always company-wide).
  */
 export async function fetchCompanyWideTestSummary(
   dateRange: DateRange | null,
-  reasonForTest: string | null = null,
+  reasonsForTest: string[] = [],
   drugFilter: SummaryResultFilter = 'ALL',
   alcoholFilter: SummaryResultFilter = 'ALL',
   operatorEmail: string | null = null
@@ -317,7 +320,7 @@ export async function fetchCompanyWideTestSummary(
   const result = await call({
     fromMillis: dateRange?.fromMillis ?? null,
     toMillis: dateRange?.toMillis ?? null,
-    reasonForTest: reasonForTest ?? null,
+    reasonsForTest,
     drugResult: drugFilter === 'ALL' ? null : drugFilter,
     alcoholResult: alcoholFilter === 'ALL' ? null : alcoholFilter,
     operatorEmail: operatorEmail ?? null,

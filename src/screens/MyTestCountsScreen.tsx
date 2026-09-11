@@ -77,10 +77,12 @@ type Props = NativeStackScreenProps<RootStackParamList, 'MyTestCounts'>;
  * anonymous sessions are automatically excluded with no extra filtering needed, since they never
  * sync to Firestore at all — there's nothing to count.
  *
- * The reason dropdown is sent to the server as a real filter, not just a client-side lookup into
- * an always-full breakdown — selecting one specific reason narrows total/byDate to just that
- * reason, and the Reason -> Count table is omitted entirely from both the on-screen state and the
- * export (see TestSummaryResult's own doc for why a 5-zeroes-and-one-real-row table isn't shown).
+ * The reason filter is sent to the server as a real filter, not just a client-side lookup into
+ * an always-full breakdown — it's multi-select (zero or more of REASON_FOR_TEST_OPTIONS, an
+ * empty selection meaning "all reasons"), and narrows total/byDate to just the selected reasons.
+ * The Reason -> Count table itself only lists the selected subset (or every reason when none are
+ * selected), and is omitted entirely when exactly one reason is selected — a 1-row table that's
+ * just the same number as the total again isn't informative (see TestSummaryResult's own doc).
  */
 export default function MyTestCountsScreen({ route }: Props) {
   const insets = useSafeAreaInsets();
@@ -88,7 +90,7 @@ export default function MyTestCountsScreen({ route }: Props) {
   const operatorEmails = route.params?.operatorEmails;
 
   const [dateRange, setDateRange] = useState<DateRange | null>(null);
-  const [reason, setReason] = useState<string>(ALL_REASONS_LABEL);
+  const [selectedReasons, setSelectedReasons] = useState<string[]>([]);
   const [drugFilter, setDrugFilter] = useState<SummaryResultFilter>('ALL');
   const [alcoholFilter, setAlcoholFilter] = useState<SummaryResultFilter>('ALL');
   const [operatorEmail, setOperatorEmail] = useState<string>(ALL_OPERATORS_LABEL);
@@ -96,13 +98,17 @@ export default function MyTestCountsScreen({ route }: Props) {
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [exporting, setExporting] = useState<'download' | 'share' | null>(null);
 
-  const reasonForQuery = reason === ALL_REASONS_LABEL ? null : reason;
   const operatorForQuery = operatorEmail === ALL_OPERATORS_LABEL ? null : operatorEmail;
+  const reasonsLabel = selectedReasons.length === 0 ? ALL_REASONS_LABEL : selectedReasons.join(', ');
+
+  const toggleReason = (r: string) => {
+    setSelectedReasons((prev) => (prev.includes(r) ? prev.filter((x) => x !== r) : [...prev, r]));
+  };
 
   useEffect(() => {
     let cancelled = false;
     setLoadingSummary(true);
-    fetchCompanyWideTestSummary(dateRange, reasonForQuery, drugFilter, alcoholFilter, operatorForQuery)
+    fetchCompanyWideTestSummary(dateRange, selectedReasons, drugFilter, alcoholFilter, operatorForQuery)
       .then((s) => {
         if (!cancelled) setSummary(s);
       })
@@ -116,19 +122,19 @@ export default function MyTestCountsScreen({ route }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [dateRange, reasonForQuery, drugFilter, alcoholFilter, operatorForQuery]);
+  }, [dateRange, selectedReasons, drugFilter, alcoholFilter, operatorForQuery]);
 
   const count = summary?.total ?? null;
 
   const buildExport = async () => {
     // Fetched fresh rather than reusing `summary` — guarantees the export reflects the exact
     // filters on screen right now, not a possibly-stale cache from mid-transition.
-    const freshSummary = await fetchCompanyWideTestSummary(dateRange, reasonForQuery, drugFilter, alcoholFilter, operatorForQuery);
+    const freshSummary = await fetchCompanyWideTestSummary(dateRange, selectedReasons, drugFilter, alcoholFilter, operatorForQuery);
     const resultLabel = (f: SummaryResultFilter) => (f === 'ALL' ? 'All' : f === 'NEGATIVE' ? 'Negative' : 'Non-Negative');
     const filters = [
       ...(operatorEmails ? [{ label: 'Operator', value: operatorEmail }] : []),
       { label: 'Date range', value: formatDateRangeForDisplay(dateRange?.fromMillis, dateRange?.toMillis) },
-      { label: 'Reason for test', value: reason },
+      { label: 'Reason for test', value: reasonsLabel },
       { label: 'Drug test result', value: resultLabel(drugFilter) },
       { label: 'Alcohol test result', value: resultLabel(alcoholFilter) },
     ];
@@ -199,7 +205,25 @@ export default function MyTestCountsScreen({ route }: Props) {
       />
 
       <Text style={styles.sectionLabel}>Filter by reason for test</Text>
-      <SelectField label="" value={reason} options={[ALL_REASONS_LABEL, ...REASON_FOR_TEST_OPTIONS]} onChange={setReason} />
+      <View style={styles.presetRow}>
+        {REASON_FOR_TEST_OPTIONS.map((r) => {
+          const selected = selectedReasons.includes(r);
+          return (
+            <Pressable
+              key={r}
+              style={[styles.presetChip, selected && styles.presetChipSelected]}
+              onPress={() => toggleReason(r)}
+            >
+              <Text style={[styles.presetChipText, selected && styles.presetChipTextSelected]}>{r}</Text>
+            </Pressable>
+          );
+        })}
+        {selectedReasons.length > 0 && (
+          <Pressable style={styles.presetChip} onPress={() => setSelectedReasons([])}>
+            <Text style={styles.presetChipText}>Clear</Text>
+          </Pressable>
+        )}
+      </View>
 
       <Text style={styles.sectionLabel}>Drug test result</Text>
       <RadioGroup options={RESULT_FILTER_OPTIONS} value={drugFilter} onChange={setDrugFilter} horizontal />
@@ -213,7 +237,7 @@ export default function MyTestCountsScreen({ route }: Props) {
         ) : (
           <>
             <Text style={styles.countNumber}>{count ?? '—'}</Text>
-            <Text style={styles.countLabel}>{reason === ALL_REASONS_LABEL ? 'tests (all reasons)' : `tests — ${reason}`}</Text>
+            <Text style={styles.countLabel}>{selectedReasons.length === 0 ? 'tests (all reasons)' : `tests — ${reasonsLabel}`}</Text>
           </>
         )}
       </View>
@@ -253,6 +277,8 @@ const styles = StyleSheet.create({
     borderColor: colors.brandPrimary,
   },
   presetChipText: { fontSize: 12, fontWeight: '600', color: colors.brandPrimary },
+  presetChipSelected: { backgroundColor: colors.brandPrimary },
+  presetChipTextSelected: { color: colors.white },
   countCard: {
     marginTop: 24,
     marginBottom: 24,
