@@ -331,9 +331,17 @@ ${parts.join('\n')}
 </html>`;
 }
 
+/** Every report file name must start with this, no exceptions — SummaryScreen's editable field
+ *  locks it as a fixed, non-removable prefix and only lets the operator edit what comes after it
+ *  (typing "XYZ" there produces "D&A-Test-XYZ", never a bare "XYZ"). Defined here rather than in
+ *  SummaryScreen so every other caller building a default name (generatePdf's own fallback for
+ *  the anonymous/guest flow, which never visits that editable field at all, and reportExport.ts's
+ *  bulk-download fallback) gets it too, consistently. */
+export const REPORT_FILE_NAME_PREFIX = 'D&A-Test-';
+
 /** Default suggestion shown on the Report screen's editable file-name field before the operator
- *  changes it — donor name + test # + date, in that order, whichever parts exist. Mirrors
- *  PdfReportGenerator.java#suggestFileName. */
+ *  changes it — donor name + test # + date, in that order, whichever parts exist, always under
+ *  REPORT_FILE_NAME_PREFIX. Mirrors PdfReportGenerator.java#suggestFileName plus that prefix. */
 export function suggestFileName(record: TestRecord): string {
   let name = donorFullName(record).replace('(Unnamed donor)', 'Report');
   if (record.donor.testNumber && record.donor.testNumber.trim() !== '') {
@@ -344,7 +352,7 @@ export function suggestFileName(record: TestRecord): string {
   const mm = String(d.getMonth() + 1).padStart(2, '0');
   const dd = String(d.getDate()).padStart(2, '0');
   name += `_${yyyy}${mm}${dd}`;
-  return sanitizeFileName(name);
+  return sanitizeFileName(`${REPORT_FILE_NAME_PREFIX}${name}`);
 }
 
 /**

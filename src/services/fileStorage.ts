@@ -61,10 +61,13 @@ export async function pdfDir(recordId: string): Promise<string> {
 
 /** Strips anything that isn't safe/sensible in a file name the operator chose freely, without
  *  rejecting the input outright — spaces become underscores, everything else disallowed is just
- *  dropped. Falls back to a generic name if that leaves nothing usable. */
+ *  dropped. Falls back to a generic name if that leaves nothing usable. '&' is allowed alongside
+ *  the usual safe set specifically so the mandatory "D&A-Test-" prefix (see pdfReportGenerator's
+ *  REPORT_FILE_NAME_PREFIX) survives onto the actual file exactly as shown on screen — it's legal
+ *  in file names on both Android and iOS, this sanitizer was just conservative about it before. */
 export function sanitizeFileName(name: string | null | undefined): string {
   if (!name) return 'Report';
-  const cleaned = name.trim().replace(/\s+/g, '_').replace(/[^A-Za-z0-9_-]/g, '');
+  const cleaned = name.trim().replace(/\s+/g, '_').replace(/[^A-Za-z0-9_&-]/g, '');
   return cleaned === '' ? 'Report' : cleaned;
 }
 

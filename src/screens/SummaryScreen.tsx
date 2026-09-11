@@ -7,7 +7,7 @@ import { RootStackParamList } from '../navigation/types';
 import { useWorkflow } from '../hooks/WorkflowContext';
 import { STATUS_COMPLETED, STATUS_IN_PROGRESS, donorFullName } from '../models/TestRecord';
 import { saveRecord } from '../services/recordRepository';
-import { generatePdf, getOrGeneratePdf, generatePdfToTempFile, suggestFileName } from '../services/pdfReportGenerator';
+import { generatePdf, getOrGeneratePdf, generatePdfToTempFile, suggestFileName, REPORT_FILE_NAME_PREFIX } from '../services/pdfReportGenerator';
 import { syncRecord } from '../services/cloudSync';
 import { sendReportEmail } from '../services/cloudFunctionsEmailSender';
 import { firebaseAuth } from '../services/firebase';
@@ -63,9 +63,16 @@ export default function SummaryScreen({ navigation }: Props) {
   // History/Admin, and never uploaded.
   const isAnonymous = !!firebaseAuth.currentUser?.isAnonymous;
 
-  const [pdfDisplayName, setPdfDisplayName] = useState(
-    record.pdfDisplayName && record.pdfDisplayName.trim() !== '' ? record.pdfDisplayName : suggestFileName(record)
+  // Every report file name must start with REPORT_FILE_NAME_PREFIX (see that constant's own doc)
+  // — only the part AFTER it is ever editable. State holds just that suffix; stripPrefix handles
+  // both a fresh suggestFileName() result (already prefixed) and an existing record.pdfDisplayName
+  // saved before this prefix requirement existed (not prefixed yet — the operator's old name
+  // becomes the suffix rather than being duplicated under a second prefix).
+  const stripPrefix = (name: string) => (name.startsWith(REPORT_FILE_NAME_PREFIX) ? name.slice(REPORT_FILE_NAME_PREFIX.length) : name);
+  const [pdfNameSuffix, setPdfNameSuffix] = useState(() =>
+    stripPrefix(record.pdfDisplayName && record.pdfDisplayName.trim() !== '' ? record.pdfDisplayName : suggestFileName(record))
   );
+  const pdfDisplayName = `${REPORT_FILE_NAME_PREFIX}${pdfNameSuffix}`;
   const [saving, setSaving] = useState(false);
   const [savingStatus, setSavingStatus] = useState('');
   // null while generating the PDF (no meaningful percentage yet) — a number once the cloud
@@ -154,7 +161,10 @@ export default function SummaryScreen({ navigation }: Props) {
 
   const onSave = async () => {
     console.log('[Summary] onSave: start, record', record.id);
-    record.pdfDisplayName = pdfDisplayName.trim() || suggestFileName(record);
+    // An empty suffix would otherwise save as the bare prefix alone (e.g. "D&A-Test-") — fall
+    // back to the usual suggested name (itself already prefixed) instead, same as before this
+    // prefix existed at all.
+    record.pdfDisplayName = pdfNameSuffix.trim() === '' ? suggestFileName(record) : `${REPORT_FILE_NAME_PREFIX}${pdfNameSuffix.trim()}`;
     setSaving(true);
     setSavingStatus('Saving record and generating report…');
     setSavingProgress(null);
@@ -371,7 +381,13 @@ export default function SummaryScreen({ navigation }: Props) {
               <Text style={styles.pdfNameLockedValue}>{pdfDisplayName}</Text>
             </View>
           ) : (
-            <TextField label="Report file name" value={pdfDisplayName} onChangeText={setPdfDisplayName} style={styles.pdfNameField} />
+            <TextField
+              label="Report file name"
+              prefixText={REPORT_FILE_NAME_PREFIX}
+              value={pdfNameSuffix}
+              onChangeText={setPdfNameSuffix}
+              style={styles.pdfNameField}
+            />
           ))}
 
         {saving && (
