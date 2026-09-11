@@ -140,7 +140,7 @@ export default function HistoryScreen({ navigation }: Props) {
                   navigation.navigate('MyTestCounts');
                 }}
               >
-                <Text style={styles.menuItemText}>Test Summary</Text>
+                <Text style={styles.menuItemText}>Test Analytics</Text>
               </Pressable>
             )}
             {realOperatorLoggedIn && (

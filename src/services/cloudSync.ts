@@ -329,9 +329,15 @@ export async function fetchTestCountsByReason(
   return { byReason, total };
 }
 
+/** 'ALL' means "don't filter on this" — matches the exact wording used on the Test Analytics
+ *  screen's own filter chips, distinct from Admin's FilterModal ResultOption ('NEGATIVE_OR_PASS'/
+ *  'NON_NEGATIVE_OR_FAIL') which mixes in alcohol's "Pass/Fail" labeling; this screen shows
+ *  "Negative"/"Non-Negative" for both drug and alcohol, so its own type says exactly that. */
+export type SummaryResultFilter = 'ALL' | 'NEGATIVE' | 'NON_NEGATIVE';
+
 /**
  * Company-wide (every operator) test-count breakdown by reason, for the operator-facing "Test
- * Summary" screen — NOT a direct Firestore query like fetchTestCountsByReason above, because
+ * Analytics" screen — NOT a direct Firestore query like fetchTestCountsByReason above, because
  * firestore.rules only lets a non-admin operator read their OWN testRecords documents
  * (operatorUid == their own uid); a client-side query spanning every operator would simply be
  * rejected. This instead calls the getTestSummary Cloud Function (functions/index.js, untouched
@@ -340,12 +346,16 @@ export async function fetchTestCountsByReason(
  * for why that's what keeps it safe to expose to any signed-in operator, not just Admin.
  */
 export async function fetchCompanyWideTestSummary(
-  dateRange: DateRange | null
+  dateRange: DateRange | null,
+  drugFilter: SummaryResultFilter = 'ALL',
+  alcoholFilter: SummaryResultFilter = 'ALL'
 ): Promise<{ byReason: ReasonCount[]; total: number }> {
   const call = httpsCallable(functions, 'getTestSummary');
   const result = await call({
     fromMillis: dateRange?.fromMillis ?? null,
     toMillis: dateRange?.toMillis ?? null,
+    drugResult: drugFilter === 'ALL' ? null : drugFilter,
+    alcoholResult: alcoholFilter === 'ALL' ? null : alcoholFilter,
   });
   return result.data as { byReason: ReasonCount[]; total: number };
 }
