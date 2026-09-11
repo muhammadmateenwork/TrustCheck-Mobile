@@ -360,9 +360,19 @@ export default function SummaryScreen({ navigation }: Props) {
 
         <RecordDetailView record={record} />
 
-        {!isAnonymous && (
-          <TextField label="Report file name" value={pdfDisplayName} onChangeText={setPdfDisplayName} style={styles.pdfNameField} />
-        )}
+        {!isAnonymous &&
+          (saving ? (
+            // Once Save is pressed the name is locked in (see onSave's record.pdfDisplayName
+            // assignment) and the save/sync/email pipeline is already running against it — an
+            // editable field here would invite a change that never actually takes effect, so this
+            // swaps to a plain read-only display rather than merely disabling the TextInput.
+            <View style={styles.pdfNameLockedBox}>
+              <Text style={styles.pdfNameLockedLabel}>Report file name</Text>
+              <Text style={styles.pdfNameLockedValue}>{pdfDisplayName}</Text>
+            </View>
+          ) : (
+            <TextField label="Report file name" value={pdfDisplayName} onChangeText={setPdfDisplayName} style={styles.pdfNameField} />
+          ))}
 
         {saving && (
           <View style={styles.savingRow}>
@@ -407,6 +417,18 @@ const styles = StyleSheet.create({
   title: { fontSize: 22, fontWeight: '700', color: colors.textPrimary, marginBottom: 8 },
   instruction: { fontSize: 13, color: colors.textSecondary, marginBottom: 16 },
   pdfNameField: { marginTop: 20 },
+  pdfNameLockedBox: {
+    marginTop: 20,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: colors.divider,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: colors.surface,
+  },
+  pdfNameLockedLabel: { fontSize: 13, color: colors.textSecondary, marginBottom: 6 },
+  pdfNameLockedValue: { fontSize: 15, color: colors.textPrimary },
   savingRow: { marginTop: 8 },
   savingHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   savingText: { fontSize: 12, color: colors.textSecondary },
