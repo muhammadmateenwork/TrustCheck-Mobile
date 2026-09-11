@@ -50,7 +50,6 @@ function notEmpty(s: string | null | undefined): boolean {
 
 export function isDonorComplete(donor: Donor): boolean {
   const base =
-    notEmpty(donor.testNumber) &&
     notEmpty(donor.donorId) &&
     notEmpty(donor.firstName) &&
     notEmpty(donor.surname) &&

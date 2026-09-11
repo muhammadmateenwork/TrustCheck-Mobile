@@ -6,9 +6,11 @@ import DateField from './DateField';
 import Button from './Button';
 import { Sort, ResultOption } from '../models/HistoryFilter';
 import { DateRange } from '../services/cloudSync';
+import { REASON_FOR_TEST_OPTIONS } from '../models/TestSetup';
 import { colors } from '../theme';
 
 const ALL_OPERATORS_LABEL = 'All operators';
+const ALL_REASONS_LABEL = 'All reasons';
 
 function startOfDay(millis: number): number {
   const d = new Date(millis);
@@ -76,6 +78,9 @@ interface Props {
   /** Admin-only, same gate as operatorEmails — a server-side syncedAt range applied in
    *  fetchAllRecordsPage, not a client-side filter like sort/drug/alcohol above. */
   dateRange?: DateRange | null;
+  /** Admin-only, same gate as operatorEmails — a server-side equality filter on
+   *  record.testSetup.reasonForTest, applied in fetchAllRecordsPage/fetchTestRecordCount. */
+  reasonFilter?: string | null;
   onCancel: () => void;
   onReset: () => void;
   onApply: (
@@ -83,7 +88,8 @@ interface Props {
     drugFilter: ResultOption,
     alcoholFilter: ResultOption,
     operatorFilterEmail?: string | null,
-    dateRange?: DateRange | null
+    dateRange?: DateRange | null,
+    reasonFilter?: string | null
   ) => void;
 }
 
@@ -97,6 +103,7 @@ export default function FilterModal({
   operatorEmails,
   operatorFilterEmail,
   dateRange,
+  reasonFilter,
   onCancel,
   onReset,
   onApply,
@@ -105,9 +112,11 @@ export default function FilterModal({
   const [localDrug, setLocalDrug] = React.useState(drugFilter);
   const [localAlcohol, setLocalAlcohol] = React.useState(alcoholFilter);
   const operatorFilterToLabel = (email: string | null | undefined) => email ?? ALL_OPERATORS_LABEL;
+  const reasonFilterToLabel = (reason: string | null | undefined) => reason ?? ALL_REASONS_LABEL;
 
   const [localOperator, setLocalOperator] = React.useState(operatorFilterToLabel(operatorFilterEmail));
   const [localDateRange, setLocalDateRange] = React.useState<DateRange | null>(dateRange ?? null);
+  const [localReason, setLocalReason] = React.useState(reasonFilterToLabel(reasonFilter));
 
   React.useEffect(() => {
     if (visible) {
@@ -116,8 +125,9 @@ export default function FilterModal({
       setLocalAlcohol(alcoholFilter);
       setLocalOperator(operatorFilterToLabel(operatorFilterEmail));
       setLocalDateRange(dateRange ?? null);
+      setLocalReason(reasonFilterToLabel(reasonFilter));
     }
-  }, [visible, sort, drugFilter, alcoholFilter, operatorFilterEmail, dateRange]);
+  }, [visible, sort, drugFilter, alcoholFilter, operatorFilterEmail, dateRange, reasonFilter]);
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
@@ -183,6 +193,14 @@ export default function FilterModal({
                   value={localDateRange?.toMillis ?? null}
                   onChange={(millis) => setLocalDateRange((r) => ({ fromMillis: r?.fromMillis ?? null, toMillis: endOfDay(millis) }))}
                 />
+
+                <Text style={styles.sectionLabel}>Filter by reason for test</Text>
+                <SelectField
+                  label=""
+                  value={localReason}
+                  options={[ALL_REASONS_LABEL, ...REASON_FOR_TEST_OPTIONS]}
+                  onChange={setLocalReason}
+                />
               </>
             )}
           </ScrollView>
@@ -193,6 +211,7 @@ export default function FilterModal({
               onPress={() => {
                 setLocalOperator(ALL_OPERATORS_LABEL);
                 setLocalDateRange(null);
+                setLocalReason(ALL_REASONS_LABEL);
                 onReset();
               }}
               style={styles.resetButton}
@@ -212,7 +231,8 @@ export default function FilterModal({
                         ? null
                         : localOperator
                       : undefined,
-                    operatorEmails ? localDateRange : undefined
+                    operatorEmails ? localDateRange : undefined,
+                    operatorEmails ? (localReason === ALL_REASONS_LABEL ? null : localReason) : undefined
                   )
                 }
                 style={styles.rightButton}

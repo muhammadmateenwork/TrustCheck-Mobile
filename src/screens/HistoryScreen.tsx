@@ -133,6 +133,17 @@ export default function HistoryScreen({ navigation }: Props) {
               </Pressable>
             )}
             {realOperatorLoggedIn && (
+              <Pressable
+                style={styles.menuItem}
+                onPress={() => {
+                  setMenuVisible(false);
+                  navigation.navigate('MyTestCounts');
+                }}
+              >
+                <Text style={styles.menuItemText}>Test Summary</Text>
+              </Pressable>
+            )}
+            {realOperatorLoggedIn && (
               <Pressable style={styles.menuItem} onPress={confirmSignOut}>
                 <Text style={styles.menuItemText}>Sign Out</Text>
               </Pressable>

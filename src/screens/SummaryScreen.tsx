@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, Alert, ActivityIndicator, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -44,11 +44,13 @@ const CLOUD_SYNC_TIMEOUT_MS = 45000;
 
 /**
  * Mirrors SummaryFragment.java. Two stages on one screen: Review (read-only summary + editable
- * report file name + Save) and Saved (Open PDF / Send Email / Back to Home) — tapping Save
- * generates the PDF, writes the record locally, and waits for the cloud sync to actually finish
- * (bounded by CLOUD_SYNC_TIMEOUT_MS) before switching over, so the record has genuinely reached
- * Firestore by the time the operator sees "Saved" — see cloudSync.syncRecord's own doc for why
- * that wait was added.
+ * report file name + Save) and a final confirmation stage — tapping Save generates the PDF,
+ * writes the record locally, waits for the cloud sync to actually finish (bounded by
+ * CLOUD_SYNC_TIMEOUT_MS), then automatically emails the report (no operator-facing Send Email
+ * button — see autoSendEmail's own doc) before revealing a "Test Completed Successfully"
+ * confirmation with no further actions besides Back to Home. Anonymous/guest sessions skip the
+ * save/sync/email entirely and get their own simpler confirmation with just Open PDF, since that's
+ * their only way to ever see the report — see the isAnonymous branch below.
  */
 export default function SummaryScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
@@ -84,12 +86,28 @@ export default function SummaryScreen({ navigation }: Props) {
 
   const revealed = useRef(false);
 
+  // Drives the completed screen's checkmark pop-in — scale 0->1 with a slight overshoot, plus a
+  // fade, so the "done" moment reads as a deliberate confirmation rather than a static icon that
+  // was just always there.
+  const checkmarkAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!saved) return;
+    checkmarkAnim.setValue(0);
+    Animated.spring(checkmarkAnim, {
+      toValue: 1,
+      friction: 5,
+      tension: 60,
+      useNativeDriver: true,
+    }).start();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saved]);
+
   // Once Saved, any attempt to leave this screen (hardware/gesture back — the explicit "Back to
   // Home" button already means exactly what it says and doesn't need to ask again) should confirm
   // first rather than silently popping back into the now-finalized wizard. While a save or email
   // send is actually in flight, back is swallowed outright (mirrors SummaryFragment.java's
   // busyBackCallback) — without this, backing out mid-operation could pop this screen while
-  // onSave/onSendEmail's background work is still running and later tries to update state on an
+  // onSave/autoSendEmail's background work is still running and later tries to update state on an
   // unmounted screen (record.status is already COMPLETED and persisted by the time saving starts,
   // so popping back into the wizard here would let the operator edit an already-finalized record).
   useEffect(() => {
@@ -178,9 +196,18 @@ export default function SummaryScreen({ navigation }: Props) {
     setSavingProgress(0);
 
     revealed.current = false;
-    const reveal = (synced: boolean) => {
+    const reveal = async (synced: boolean) => {
       if (revealed.current) return;
       revealed.current = true;
+
+      // Sent automatically here, before the completed screen ever appears — the operator never
+      // sees a Send Email button or is told whether it succeeded (see autoSendEmail's own doc).
+      if (!isAnonymous) {
+        setSavingProgress(null);
+        setSavingStatus('Sending email…');
+        await autoSendEmail();
+      }
+
       setSaving(false);
       setSaved(true);
       if (pdfError) {
@@ -193,14 +220,14 @@ export default function SummaryScreen({ navigation }: Props) {
     console.log('[Summary] onSaved: syncing to cloud…');
     const timeout = setTimeout(() => {
       console.log('[Summary] onSaved: cloud sync timed out after', CLOUD_SYNC_TIMEOUT_MS, 'ms, revealing anyway');
-      reveal(false);
+      void reveal(false);
     }, CLOUD_SYNC_TIMEOUT_MS);
     await syncRecord(
       record,
       (synced) => {
         console.log('[Summary] onSaved: syncRecord completed, synced =', synced);
         clearTimeout(timeout);
-        reveal(synced);
+        void reveal(synced);
       },
       (percent) => setSavingProgress(percent)
     );
@@ -221,10 +248,13 @@ export default function SummaryScreen({ navigation }: Props) {
     navigation.navigate('PdfViewer', { pdfPath: path, title: donorFullName(record) });
   };
 
-  const onSendEmail = async () => {
-    // No longer gated on testSetup.recipientEmail — that field was removed from Test Setup, and
-    // every report currently goes to TEST_RECIPIENT_OVERRIDE regardless (see that constant's own
-    // doc). Re-add a recipient check here if/when the override is ever removed.
+  // Sent automatically as part of the save flow (see onSaved's reveal()), never by an operator
+  // tapping a button — deliberately silent on failure: the operator is never told whether the
+  // send succeeded, so a failed send must not block or alarm them on the way to the completed
+  // screen. Not gated on testSetup.recipientEmail — that field was removed from Test Setup, and
+  // every report currently goes to TEST_RECIPIENT_OVERRIDE regardless (see that constant's own
+  // doc). Re-add a recipient check here if/when the override is ever removed.
+  const autoSendEmail = async () => {
     setSendingEmail(true);
     let tempPath: string | null = null;
     try {
@@ -232,9 +262,8 @@ export default function SummaryScreen({ navigation }: Props) {
       await sendReportEmail(record, tempPath, TEST_RECIPIENT_OVERRIDE);
       record.emailSent = true;
       await saveRecord(record);
-      showToast('Report emailed successfully', 'success');
     } catch (e) {
-      showToast(`Failed to send email: ${(e as Error).message}`, 'error');
+      console.log('[Summary] autoSendEmail: failed, proceeding anyway —', e);
     } finally {
       if (tempPath) await FileSystem.deleteAsync(tempPath, { idempotent: true });
       setSendingEmail(false);
@@ -248,64 +277,66 @@ export default function SummaryScreen({ navigation }: Props) {
   };
 
   if (saved) {
-    const fileName = pdfPath ? pdfPath.split('/').pop() : null;
+    // Anonymous/guest sessions never sync or email anywhere — Open PDF here is their only way to
+    // ever see the report, so that path is left exactly as it was. A real operator gets the
+    // simplified confirmation-only screen below: no Open PDF, no Send Email (already sent
+    // automatically before this screen ever appeared — see onSaved/autoSendEmail).
+    if (isAnonymous) {
+      const fileName = pdfPath ? pdfPath.split('/').pop() : null;
+      return (
+        <View style={styles.screen}>
+          <View style={styles.topBar}>
+            <Text style={styles.topBarTitle}>Test Complete</Text>
+          </View>
+          <ScrollView contentContainerStyle={[styles.savedContainer, { paddingBottom: 24 + insets.bottom }]}>
+            <View style={styles.savedIconCircle}>
+              <MaterialIcons name="check" size={40} color={colors.white} />
+            </View>
+            <Text style={styles.savedTitle}>Test Complete</Text>
+            <Text style={styles.savedSubtitle}>This was a guest session — nothing was saved.</Text>
+
+            <View style={styles.savedInfoCard}>
+              <View style={styles.savedInfoRow}>
+                <MaterialIcons name="person" size={18} color={colors.textSecondary} style={styles.savedInfoIcon} />
+                <Text style={styles.savedInfoText}>{donorFullName(record)}</Text>
+              </View>
+              <View style={styles.savedInfoDivider} />
+              <View style={styles.savedInfoRow}>
+                <MaterialIcons name="description" size={18} color={colors.textSecondary} style={styles.savedInfoIcon} />
+                <Text style={styles.savedInfoText} numberOfLines={1}>
+                  {fileName ?? 'Report will be generated when you open it'}
+                </Text>
+              </View>
+            </View>
+
+            <Button title="Open PDF" variant="outlined" icon="picture-as-pdf" onPress={onOpenPdf} style={styles.savedButton} />
+            <Button title="Back to Home" variant="text" onPress={onBackToHome} style={styles.backToHomeButton} />
+          </ScrollView>
+        </View>
+      );
+    }
+
     return (
       <View style={styles.screen}>
         <View style={styles.topBar}>
           <Text style={styles.topBarTitle}>Test Complete</Text>
         </View>
         <ScrollView contentContainerStyle={[styles.savedContainer, { paddingBottom: 24 + insets.bottom }]}>
-          <View style={styles.savedIconCircle}>
+          <Animated.View
+            style={[
+              styles.savedIconCircle,
+              {
+                opacity: checkmarkAnim,
+                transform: [{ scale: checkmarkAnim }],
+              },
+            ]}
+          >
             <MaterialIcons name="check" size={40} color={colors.white} />
-          </View>
-          <Text style={styles.savedTitle}>{isAnonymous ? 'Test Complete' : 'Record Saved'}</Text>
-          <Text style={styles.savedSubtitle}>
-            {isAnonymous ? 'This was a guest session — nothing was saved.' : 'This test has been completed.'}
-          </Text>
+          </Animated.View>
+          <Text style={styles.savedTitle}>Test Completed Successfully</Text>
+          <Text style={styles.savedSubtitle}>{donorFullName(record)}</Text>
 
-          <View style={styles.savedInfoCard}>
-            <View style={styles.savedInfoRow}>
-              <MaterialIcons name="person" size={18} color={colors.textSecondary} style={styles.savedInfoIcon} />
-              <Text style={styles.savedInfoText}>{donorFullName(record)}</Text>
-            </View>
-            {!isAnonymous && (
-              <>
-                <View style={styles.savedInfoDivider} />
-                <View style={styles.savedInfoRow}>
-                  <MaterialIcons name="event" size={18} color={colors.textSecondary} style={styles.savedInfoIcon} />
-                  <Text style={styles.savedInfoText}>Saved {formatDateTime(record.updatedAt)}</Text>
-                </View>
-              </>
-            )}
-            <View style={styles.savedInfoDivider} />
-            <View style={styles.savedInfoRow}>
-              <MaterialIcons name="description" size={18} color={colors.textSecondary} style={styles.savedInfoIcon} />
-              <Text style={styles.savedInfoText} numberOfLines={1}>
-                {fileName ?? 'Report will be generated when you open it'}
-              </Text>
-            </View>
-          </View>
-
-          <Button title="Open PDF" variant="outlined" icon="picture-as-pdf" onPress={onOpenPdf} style={styles.savedButton} />
-          {!isAnonymous && (
-            <>
-              <Button
-                title={sendingEmail ? 'Sending…' : 'Send Email'}
-                icon="email"
-                onPress={onSendEmail}
-                loading={sendingEmail}
-                style={styles.savedButton}
-              />
-              {sendingEmail && (
-                <View style={styles.emailProgressRow}>
-                  <ActivityIndicator size="small" color={colors.brandPrimary} />
-                  <Text style={styles.emailProgressText}>Sending email…</Text>
-                </View>
-              )}
-            </>
-          )}
-
-          <Button title="Back to Home" variant="text" onPress={onBackToHome} style={styles.backToHomeButton} />
+          <Button title="Back to Home" onPress={onBackToHome} style={styles.backToHomeButton} />
         </ScrollView>
       </View>
     );
@@ -324,7 +355,7 @@ export default function SummaryScreen({ navigation }: Props) {
         <Text style={styles.instruction}>
           {isAnonymous
             ? 'Review everything below. This is a guest session — nothing will be saved, but you can still open the PDF report.'
-            : 'Review everything below before saving. Once saved, you can email, open, or share the PDF report.'}
+            : 'Review everything below before saving. The report will be emailed automatically once saved.'}
         </Text>
 
         <RecordDetailView record={record} />
@@ -412,6 +443,4 @@ const styles = StyleSheet.create({
   savedInfoDivider: { height: 1, backgroundColor: colors.divider, marginLeft: 46 },
   savedButton: { width: '100%', marginTop: 12 },
   backToHomeButton: { width: '100%', marginTop: 20 },
-  emailProgressRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8, gap: 8 },
-  emailProgressText: { fontSize: 12, color: colors.textSecondary },
 });

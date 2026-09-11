@@ -70,7 +70,9 @@ export async function shareResult(path: string, isZip: boolean): Promise<void> {
 // (in practice: Downloads) the FIRST time they ever download something — every subsequent job
 // writes straight into it without asking again. There is no equivalent AsyncStorage key needed on
 // iOS; that platform has no public-folder write API at all (see saveResultToDownloads's own doc).
-const DOWNLOADS_DIR_URI_KEY = 'admin_downloads_dir_uri';
+// Exported so countsExport.ts's CSV export shares the same one-time grant instead of prompting
+// for a folder a second time for a different export type.
+export const DOWNLOADS_DIR_URI_KEY = 'admin_downloads_dir_uri';
 
 /**
  * Writes a finished result (single PDF or ZIP) directly into a real, user-visible folder on

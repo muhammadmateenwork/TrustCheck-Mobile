@@ -23,6 +23,7 @@ import PdfViewerScreen from '../screens/PdfViewerScreen';
 import SummaryScreen from '../screens/SummaryScreen';
 import AdminScreen from '../screens/AdminScreen';
 import OperatorProfileScreen from '../screens/OperatorProfileScreen';
+import MyTestCountsScreen from '../screens/MyTestCountsScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -70,6 +71,7 @@ export default function RootNavigator() {
       <Stack.Screen name="Summary" component={SummaryScreen} options={{ title: 'Report', headerShown: false }} />
       <Stack.Screen name="History" component={HistoryScreen} options={{ title: 'TrustCheck', headerShown: false }} />
       <Stack.Screen name="OperatorProfile" component={OperatorProfileScreen} options={{ title: 'My Profile' }} />
+      <Stack.Screen name="MyTestCounts" component={MyTestCountsScreen} options={{ title: 'Test Summary' }} />
       <Stack.Screen name="PdfViewer" component={PdfViewerScreen} options={{ title: 'Report', presentation: 'fullScreenModal' }} />
       <Stack.Screen
         name="QrScan"

@@ -60,6 +60,11 @@ export type RootStackParamList = {
   FinalSignOff: undefined;
   Summary: undefined;
   History: undefined;
+  /** Company-wide counts-only view (not scoped to the signed-in operator) — filterable by date
+   *  range and reason for test, showing how many tests match across every operator, excluding
+   *  guest/anonymous sessions, never individual record details (no way to open a record or its
+   *  PDF from here). See MyTestCountsScreen's own doc. */
+  MyTestCounts: undefined;
   OperatorProfile: undefined;
   /** Equivalent of the native PdfViewerActivity. */
   PdfViewer: { pdfPath: string; title: string };

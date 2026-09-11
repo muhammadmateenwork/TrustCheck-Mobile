@@ -32,11 +32,13 @@ import {
   fetchAllRecordsPage,
   watchNewestRecordId,
   loadRecordForAdmin,
+  fetchTestCountsByReason,
   DateRange,
 } from '../services/cloudSync';
 import { getOrGeneratePdf } from '../services/pdfReportGenerator';
 import { saveRecord } from '../services/recordRepository';
 import { enqueueDownload, useDownloadJobs } from '../services/downloadQueue';
+import { buildCountsCsv, saveCsvToDownloads } from '../services/countsExport';
 import DownloadsPanel from '../components/DownloadsPanel';
 import { Operator } from '../models/Operator';
 import { TestRecord, donorFullName } from '../models/TestRecord';
@@ -160,7 +162,9 @@ export default function AdminScreen({ navigation }: Props) {
   const [recordFilter, setRecordFilter] = useState<HistoryFilter>(createHistoryFilter());
   const [operatorFilterEmail, setOperatorFilterEmail] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<DateRange | null>(null);
+  const [reasonFilter, setReasonFilter] = useState<string | null>(null);
   const [filterVisible, setFilterVisible] = useState(false);
+  const [exportingCounts, setExportingCounts] = useState(false);
   const [loadingRecords, setLoadingRecords] = useState(false);
   const [refreshingRecords, setRefreshingRecords] = useState(false);
   const [hasMoreRecords, setHasMoreRecords] = useState(true);
@@ -199,7 +203,8 @@ export default function AdminScreen({ navigation }: Props) {
           isFirstPage ? null : recordsCursor.current,
           operatorFilterEmail,
           RECORDS_PAGE_SIZE,
-          dateRange
+          dateRange,
+          reasonFilter
         );
         recordsCursor.current = page.cursor;
         hasMoreRecordsRef.current = page.hasMore;
@@ -217,7 +222,7 @@ export default function AdminScreen({ navigation }: Props) {
         setLoadingRecords(false);
       }
     },
-    [operatorFilterEmail, dateRange]
+    [operatorFilterEmail, dateRange, reasonFilter]
   );
 
   const resetAndLoadRecords = useCallback(() => {
@@ -272,7 +277,7 @@ export default function AdminScreen({ navigation }: Props) {
     resetAndLoadRecords();
     void loadRecordsPage(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [operatorFilterEmail, dateRange]);
+  }, [operatorFilterEmail, dateRange, reasonFilter]);
 
   const visibleRecords = applyHistoryFilter(recordFilter, loadedRecords);
 
@@ -345,6 +350,33 @@ export default function AdminScreen({ navigation }: Props) {
     setSelectedIds(new Set());
     setDownloadsVisible(true);
     showToast(`Added to downloads — ${selected.length === 1 ? '1 report' : `${selected.length} reports`} queued`, 'success');
+  };
+
+  // Always exports the full per-reason breakdown for the current operator + date range filter,
+  // regardless of whatever single reason the Filter dialog's own reason dropdown is currently set
+  // to — a full breakdown is a strict superset (it includes that one reason's own count as a row)
+  // and a more useful standalone report than a single number would be. Never includes individual
+  // record details, matching the counts-only nature of this export.
+  const onExportCounts = async () => {
+    setExportingCounts(true);
+    try {
+      const { byReason, total } = await fetchTestCountsByReason(operatorFilterEmail, dateRange);
+      const csv = buildCountsCsv(
+        [
+          { label: 'Operator', value: operatorFilterEmail ?? 'All operators' },
+          { label: 'From', value: dateRange?.fromMillis ? new Date(dateRange.fromMillis).toLocaleDateString() : 'Any' },
+          { label: 'To', value: dateRange?.toMillis ? new Date(dateRange.toMillis).toLocaleDateString() : 'Any' },
+        ],
+        byReason,
+        total
+      );
+      const result = await saveCsvToDownloads(csv, `TrustCheck_TestSummary_${Date.now()}.csv`);
+      showToast(result === 'saved' ? 'Saved to Downloads' : 'Ready to share', 'success');
+    } catch (e) {
+      showToast(`Could not export summary: ${(e as Error).message}`, 'error');
+    } finally {
+      setExportingCounts(false);
+    }
   };
 
   const confirmSignOut = () => {
@@ -476,8 +508,15 @@ export default function AdminScreen({ navigation }: Props) {
                 color={colors.brandPrimary}
               />
             </Pressable>
+            <Pressable onPress={() => void onExportCounts()} style={styles.iconButton} hitSlop={8} disabled={exportingCounts}>
+              {exportingCounts ? (
+                <ActivityIndicator size="small" color={colors.brandPrimary} />
+              ) : (
+                <MaterialIcons name="summarize" size={22} color={colors.brandPrimary} />
+              )}
+            </Pressable>
           </View>
-          {(!isDefaultFilter(recordFilter) || operatorFilterEmail || dateRange) && (
+          {(!isDefaultFilter(recordFilter) || operatorFilterEmail || dateRange || reasonFilter) && (
             <Text style={styles.activeFilters}>Filters active — tap the icon to change</Text>
           )}
           {selectionMode && (
@@ -548,17 +587,20 @@ export default function AdminScreen({ navigation }: Props) {
         operatorEmails={allOperatorEmails.map((op) => op.email)}
         operatorFilterEmail={operatorFilterEmail}
         dateRange={dateRange}
+        reasonFilter={reasonFilter}
         onCancel={() => setFilterVisible(false)}
         onReset={() => {
           setRecordFilter(createHistoryFilter());
           setOperatorFilterEmail(null);
           setDateRange(null);
+          setReasonFilter(null);
           setFilterVisible(false);
         }}
-        onApply={(sort, drugFilter, alcoholFilter, operatorEmail, newDateRange) => {
+        onApply={(sort, drugFilter, alcoholFilter, operatorEmail, newDateRange, newReasonFilter) => {
           setRecordFilter((f) => ({ ...f, sort, drugFilter, alcoholFilter }));
           setOperatorFilterEmail(operatorEmail ?? null);
           setDateRange(newDateRange ?? null);
+          setReasonFilter(newReasonFilter ?? null);
           setFilterVisible(false);
         }}
       />

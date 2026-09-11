@@ -67,7 +67,6 @@ export default function DonorDataScreen({ navigation }: Props) {
   const signatureRef = useRef<SignaturePadHandle>(null);
 
   const base =
-    testNumber.trim() !== '' &&
     donorId.trim() !== '' &&
     firstName.trim() !== '' &&
     surname.trim() !== '' &&
@@ -141,7 +140,7 @@ export default function DonorDataScreen({ navigation }: Props) {
       </FormSection>
 
       <FormSection title="Donor Details">
-        <TextField label="Test # (e.g. DT 5000) *" value={testNumber} onChangeText={setTestNumber} startIcon="confirmation-number" />
+        <TextField label="Test # (e.g. DT 5000)" value={testNumber} onChangeText={setTestNumber} startIcon="confirmation-number" />
         <TextField label="Donor ID *" value={donorId} onChangeText={setDonorId} startIcon="badge" />
 
         <Text style={styles.sectionLabel}>Photo of Donor ID</Text>
