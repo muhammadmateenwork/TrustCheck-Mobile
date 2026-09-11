@@ -3,7 +3,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ExcelJS from 'exceljs';
-import { ReasonCount } from './cloudSync';
+import { TestSummaryResult } from './cloudSync';
 import { DOWNLOADS_DIR_URI_KEY } from './reportExport';
 
 /** One row per applied filter (e.g. "Date range" -> "1 Jan 2026 to 7 Jan 2026", "Reason" ->
@@ -17,25 +17,70 @@ export interface SummaryFilterRow {
 const HEADER_FILL = 'FF1F4E5F';
 const HEADER_FONT_ARGB = 'FFFFFFFF';
 const TITLE_FONT_SIZE = 16;
+const COLUMN_WIDTH = 26;
 
-/** Builds the Test Analytics workbook — title, every applied filter spelled out in full (never a
- *  bare "excluded"-style aside), then a bold-headered Reason -> Count table with a bold Total row
- *  — and returns it as a base64 string ready to hand to FileSystem's base64 write, matching how
- *  the rest of this app already moves binary file content around (see reportExport.ts's own ZIP
- *  handling). Never includes individual record details, matching the counts-only nature of this
- *  export on both the operator's and Admin's screens.
+function styleHeaderRow(row: ExcelJS.Row): void {
+  row.eachCell((cell) => {
+    cell.font = { bold: true, color: { argb: HEADER_FONT_ARGB } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HEADER_FILL } };
+    cell.alignment = { vertical: 'middle' };
+  });
+}
+
+function styleTotalRow(row: ExcelJS.Row): void {
+  row.eachCell((cell) => {
+    cell.font = { bold: true };
+    cell.border = { top: { style: 'thin' } };
+  });
+}
+
+/** 'YYYY-MM-DD' (always UTC-keyed, see getTestSummary's own dateKeyUTC comment) -> "3 Mar 2026".
+ *  Parsed and re-formatted as UTC on both ends so the displayed date always matches the key
+ *  exactly, with no local-timezone shift introduced purely by rendering it for a human to read. */
+function formatIsoDateForDisplay(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
+/** 'YYYY-MM' -> "Mar 2026", same UTC reasoning as formatIsoDateForDisplay above. */
+function formatIsoMonthForDisplay(iso: string): string {
+  const [y, m] = iso.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString(undefined, {
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
+/**
+ * Builds the Test Analytics workbook — title, every applied filter spelled out in full (never a
+ * bare "excluded"-style aside), the overall total, then:
+ *  - a bold-headered Reason -> Count table, only when summary.byReason is present (the caller
+ *    narrowed to one specific reason omits this — see TestSummaryResult's own doc for why a
+ *    degenerate one-row breakdown isn't shown), and
+ *  - a bold-headered Date/Month -> Count table, always present, so a date-range export is never
+ *    just a single aggregate number — the reader can see the day-by-day (or month-by-month, for
+ *    an open-ended range) shape of exactly what matched every OTHER active filter too.
+ * Returns the workbook as a base64 string ready to hand to FileSystem's base64 write, matching how
+ * the rest of this app already moves binary file content around (see reportExport.ts's own ZIP
+ * handling). Never includes individual record details, matching the counts-only nature of this
+ * export on both the operator's and Admin's screens.
  */
 export async function buildSummaryWorkbookBase64(
   title: string,
   filters: SummaryFilterRow[],
-  byReason: ReasonCount[],
-  total: number
+  summary: TestSummaryResult
 ): Promise<string> {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'TrustCheck';
   workbook.created = new Date();
   const sheet = workbook.addWorksheet('Test Analytics');
-  sheet.columns = [{ width: 30 }, { width: 26 }];
+  sheet.columns = [{ width: 30 }, { width: COLUMN_WIDTH }];
 
   const titleRow = sheet.addRow([title]);
   titleRow.getCell(1).font = { bold: true, size: TITLE_FONT_SIZE };
@@ -54,23 +99,24 @@ export async function buildSummaryWorkbookBase64(
   }
 
   sheet.addRow([]);
+  styleTotalRow(sheet.addRow(['Total matching tests', summary.total]));
+  sheet.addRow([]);
 
-  const tableHeaderRow = sheet.addRow(['Reason for Test', 'Count']);
-  tableHeaderRow.eachCell((cell) => {
-    cell.font = { bold: true, color: { argb: HEADER_FONT_ARGB } };
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HEADER_FILL } };
-    cell.alignment = { vertical: 'middle' };
-  });
-
-  for (const r of byReason) {
-    sheet.addRow([r.reason, r.count]);
+  if (summary.byReason) {
+    styleHeaderRow(sheet.addRow(['Reason for Test', 'Count']));
+    for (const r of summary.byReason) {
+      sheet.addRow([r.reason, r.count]);
+    }
+    styleTotalRow(sheet.addRow(['Total', summary.total]));
+    sheet.addRow([]);
   }
 
-  const totalRow = sheet.addRow(['Total', total]);
-  totalRow.eachCell((cell) => {
-    cell.font = { bold: true };
-    cell.border = { top: { style: 'thin' } };
-  });
+  const isDay = summary.byDateGranularity === 'day';
+  styleHeaderRow(sheet.addRow([isDay ? 'Date' : 'Month', 'Count']));
+  for (const d of summary.byDate) {
+    sheet.addRow([isDay ? formatIsoDateForDisplay(d.date) : formatIsoMonthForDisplay(d.date), d.count]);
+  }
+  styleTotalRow(sheet.addRow(['Total', summary.total]));
 
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer).toString('base64');

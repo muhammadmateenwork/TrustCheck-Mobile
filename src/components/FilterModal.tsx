@@ -79,7 +79,7 @@ interface Props {
    *  fetchAllRecordsPage, not a client-side filter like sort/drug/alcohol above. */
   dateRange?: DateRange | null;
   /** Admin-only, same gate as operatorEmails — a server-side equality filter on
-   *  record.testSetup.reasonForTest, applied in fetchAllRecordsPage/fetchTestRecordCount. */
+   *  record.testSetup.reasonForTest, applied in fetchAllRecordsPage. */
   reasonFilter?: string | null;
   onCancel: () => void;
   onReset: () => void;

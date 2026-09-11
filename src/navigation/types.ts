@@ -61,10 +61,13 @@ export type RootStackParamList = {
   Summary: undefined;
   History: undefined;
   /** Company-wide counts-only view (not scoped to the signed-in operator) — filterable by date
-   *  range and reason for test, showing how many tests match across every operator, excluding
-   *  guest/anonymous sessions, never individual record details (no way to open a record or its
-   *  PDF from here). See MyTestCountsScreen's own doc. */
-  MyTestCounts: undefined;
+   *  range, reason for test, drug/alcohol result, and (when reached from Admin) a specific
+   *  operator, showing how many tests match across every operator, excluding guest/anonymous
+   *  sessions, never individual record details (no way to open a record or its PDF from here).
+   *  `operatorEmails` is set only by AdminScreen (every operator's email, for the "Filter by
+   *  operator" dropdown) — omitted when reached from the operator's own History menu, which
+   *  always stays company-wide. See MyTestCountsScreen's own doc. */
+  MyTestCounts: { operatorEmails?: string[] } | undefined;
   OperatorProfile: undefined;
   /** Equivalent of the native PdfViewerActivity. */
   PdfViewer: { pdfPath: string; title: string };

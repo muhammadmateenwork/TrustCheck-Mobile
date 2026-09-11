@@ -32,13 +32,11 @@ import {
   fetchAllRecordsPage,
   watchNewestRecordId,
   loadRecordForAdmin,
-  fetchTestCountsByReason,
   DateRange,
 } from '../services/cloudSync';
 import { getOrGeneratePdf } from '../services/pdfReportGenerator';
 import { saveRecord } from '../services/recordRepository';
 import { enqueueDownload, useDownloadJobs } from '../services/downloadQueue';
-import { buildSummaryWorkbookBase64, saveSummaryWorkbookToDownloads, shareSummaryWorkbook, formatDateRangeForDisplay } from '../services/countsExport';
 import DownloadsPanel from '../components/DownloadsPanel';
 import { Operator } from '../models/Operator';
 import { TestRecord, donorFullName } from '../models/TestRecord';
@@ -164,7 +162,6 @@ export default function AdminScreen({ navigation }: Props) {
   const [dateRange, setDateRange] = useState<DateRange | null>(null);
   const [reasonFilter, setReasonFilter] = useState<string | null>(null);
   const [filterVisible, setFilterVisible] = useState(false);
-  const [exportingCounts, setExportingCounts] = useState<'download' | 'share' | null>(null);
   const [loadingRecords, setLoadingRecords] = useState(false);
   const [refreshingRecords, setRefreshingRecords] = useState(false);
   const [hasMoreRecords, setHasMoreRecords] = useState(true);
@@ -350,50 +347,6 @@ export default function AdminScreen({ navigation }: Props) {
     setSelectedIds(new Set());
     setDownloadsVisible(true);
     showToast(`Added to downloads — ${selected.length === 1 ? '1 report' : `${selected.length} reports`} queued`, 'success');
-  };
-
-  // Always exports the full per-reason breakdown for the current operator + date range + reason
-  // filter, regardless of whatever single reason the Filter dialog's own reason dropdown is
-  // currently set to — a full breakdown is a strict superset (it includes that one reason's own
-  // count as a row) and a more useful standalone report than a single number would be. Never
-  // includes individual record details, matching the counts-only nature of this export.
-  const buildCountsExport = async () => {
-    const { byReason, total } = await fetchTestCountsByReason(operatorFilterEmail, dateRange);
-    return buildSummaryWorkbookBase64(
-      'TrustCheck Test Analytics',
-      [
-        { label: 'Operator', value: operatorFilterEmail ?? 'All operators' },
-        { label: 'Date range', value: formatDateRangeForDisplay(dateRange?.fromMillis, dateRange?.toMillis) },
-        { label: 'Reason for test', value: reasonFilter ?? 'All reasons' },
-      ],
-      byReason,
-      total
-    );
-  };
-
-  const onDownloadCounts = async () => {
-    setExportingCounts('download');
-    try {
-      const base64 = await buildCountsExport();
-      const result = await saveSummaryWorkbookToDownloads(base64, `TrustCheck_TestAnalytics_${Date.now()}.xlsx`);
-      showToast(result === 'saved' ? 'Saved to Downloads' : 'Ready to share', 'success');
-    } catch (e) {
-      showToast(`Could not export summary: ${(e as Error).message}`, 'error');
-    } finally {
-      setExportingCounts(null);
-    }
-  };
-
-  const onShareCounts = async () => {
-    setExportingCounts('share');
-    try {
-      const base64 = await buildCountsExport();
-      await shareSummaryWorkbook(base64, `TrustCheck_TestAnalytics_${Date.now()}.xlsx`);
-    } catch (e) {
-      showToast(`Could not share summary: ${(e as Error).message}`, 'error');
-    } finally {
-      setExportingCounts(null);
-    }
   };
 
   const confirmSignOut = () => {
@@ -634,36 +587,15 @@ export default function AdminScreen({ navigation }: Props) {
       <Modal visible={menuVisible} transparent animationType="fade" onRequestClose={() => setMenuVisible(false)}>
         <Pressable style={styles.menuBackdrop} onPress={() => setMenuVisible(false)}>
           <View style={styles.menuCard}>
-            {tab === 'records' && (
-              <Pressable
-                style={styles.menuItem}
-                onPress={() => {
-                  setMenuVisible(false);
-                  void onDownloadCounts();
-                }}
-                disabled={exportingCounts != null}
-              >
-                <View style={styles.menuItemRow}>
-                  <Text style={styles.menuItemText}>Download Test Analytics</Text>
-                  {exportingCounts === 'download' && <ActivityIndicator size="small" color={colors.brandPrimary} />}
-                </View>
-              </Pressable>
-            )}
-            {tab === 'records' && (
-              <Pressable
-                style={styles.menuItem}
-                onPress={() => {
-                  setMenuVisible(false);
-                  void onShareCounts();
-                }}
-                disabled={exportingCounts != null}
-              >
-                <View style={styles.menuItemRow}>
-                  <Text style={styles.menuItemText}>Share Test Analytics</Text>
-                  {exportingCounts === 'share' && <ActivityIndicator size="small" color={colors.brandPrimary} />}
-                </View>
-              </Pressable>
-            )}
+            <Pressable
+              style={styles.menuItem}
+              onPress={() => {
+                setMenuVisible(false);
+                navigation.navigate('MyTestCounts', { operatorEmails: allOperatorEmails.map((op) => op.email) });
+              }}
+            >
+              <Text style={styles.menuItemText}>Test Analytics</Text>
+            </Pressable>
             <Pressable
               style={styles.menuItem}
               onPress={() => {

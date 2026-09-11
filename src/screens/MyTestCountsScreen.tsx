@@ -3,7 +3,7 @@ import { View, Text, ScrollView, StyleSheet, Pressable, ActivityIndicator } from
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
-import { fetchCompanyWideTestSummary, DateRange, ReasonCount, SummaryResultFilter } from '../services/cloudSync';
+import { fetchCompanyWideTestSummary, DateRange, TestSummaryResult, SummaryResultFilter } from '../services/cloudSync';
 import { buildSummaryWorkbookBase64, saveSummaryWorkbookToDownloads, shareSummaryWorkbook, formatDateRangeForDisplay } from '../services/countsExport';
 import { REASON_FOR_TEST_OPTIONS } from '../models/TestSetup';
 import SelectField from '../components/SelectField';
@@ -14,6 +14,7 @@ import { useToast } from '../components/Toast';
 import { colors } from '../theme';
 
 const ALL_REASONS_LABEL = 'All reasons';
+const ALL_OPERATORS_LABEL = 'All operators';
 
 const RESULT_FILTER_OPTIONS: RadioOption<SummaryResultFilter>[] = [
   { value: 'ALL', label: 'All' },
@@ -55,39 +56,53 @@ type Props = NativeStackScreenProps<RootStackParamList, 'MyTestCounts'>;
  * Counts-only view of TOTAL tests performed across every operator — deliberately never lets the
  * viewer open, browse, or view any individual record or PDF from here (that restriction predates
  * this screen, see HistoryScreen's own doc; this adds visibility into HOW MANY tests without
- * reversing it). Not scoped to the signed-in operator — an explicit product decision: this is a
- * company-wide total, not a personal one.
+ * reversing it). Not scoped to the signed-in operator by default — an explicit product decision:
+ * this is a company-wide total, not a personal one.
+ *
+ * Shared by both the operator's own "Test Analytics" menu item (HistoryScreen, no route params)
+ * AND Admin's (AdminScreen, passes `operatorEmails` — every operator's email — as a route param).
+ * That one param is the only difference: when present, an extra "Filter by operator" dropdown is
+ * shown first (matching FilterModal's own field order) and its selection is sent to the Cloud
+ * Function as a fifth filter; when absent, there's no way to narrow to one specific operator and
+ * every query stays company-wide, exactly as before. This is deliberately the SAME page for both,
+ * not two parallel screens, so a filter-combination bug only ever needs fixing once.
  *
  * Both the live count and the export are powered by fetchCompanyWideTestSummary, which calls the
  * getTestSummary Cloud Function rather than querying Firestore directly — firestore.rules only
  * let a non-admin operator read THEIR OWN testRecords documents, so a client-side query spanning
  * every operator would simply be rejected. The Cloud Function uses the Admin SDK server-side to
  * compute the counts and returns only the aggregate numbers, never the underlying documents — see
- * that function's own doc for why that's what keeps this safe. Guest/anonymous sessions are
- * automatically excluded with no extra filtering needed, since they never sync to Firestore at
- * all — there's nothing to count.
+ * that function's own doc for why that's what keeps this safe, and for why ALL five filters
+ * (operator, date range, reason, drug, alcohol) are ANDed together in that one place. Guest/
+ * anonymous sessions are automatically excluded with no extra filtering needed, since they never
+ * sync to Firestore at all — there's nothing to count.
  *
- * One fetch per filter change returns the full per-reason breakdown; the reason dropdown just
- * picks which row of that already-fetched breakdown to show as the live number. The export always
- * contains the full reason breakdown regardless of that dropdown, since it's a strict superset and
- * a more useful standalone report.
+ * The reason dropdown is sent to the server as a real filter, not just a client-side lookup into
+ * an always-full breakdown — selecting one specific reason narrows total/byDate to just that
+ * reason, and the Reason -> Count table is omitted entirely from both the on-screen state and the
+ * export (see TestSummaryResult's own doc for why a 5-zeroes-and-one-real-row table isn't shown).
  */
-export default function MyTestCountsScreen({}: Props) {
+export default function MyTestCountsScreen({ route }: Props) {
   const insets = useSafeAreaInsets();
   const { showToast } = useToast();
+  const operatorEmails = route.params?.operatorEmails;
 
   const [dateRange, setDateRange] = useState<DateRange | null>(null);
   const [reason, setReason] = useState<string>(ALL_REASONS_LABEL);
   const [drugFilter, setDrugFilter] = useState<SummaryResultFilter>('ALL');
   const [alcoholFilter, setAlcoholFilter] = useState<SummaryResultFilter>('ALL');
-  const [summary, setSummary] = useState<{ byReason: ReasonCount[]; total: number } | null>(null);
+  const [operatorEmail, setOperatorEmail] = useState<string>(ALL_OPERATORS_LABEL);
+  const [summary, setSummary] = useState<TestSummaryResult | null>(null);
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [exporting, setExporting] = useState<'download' | 'share' | null>(null);
+
+  const reasonForQuery = reason === ALL_REASONS_LABEL ? null : reason;
+  const operatorForQuery = operatorEmail === ALL_OPERATORS_LABEL ? null : operatorEmail;
 
   useEffect(() => {
     let cancelled = false;
     setLoadingSummary(true);
-    fetchCompanyWideTestSummary(dateRange, drugFilter, alcoholFilter)
+    fetchCompanyWideTestSummary(dateRange, reasonForQuery, drugFilter, alcoholFilter, operatorForQuery)
       .then((s) => {
         if (!cancelled) setSummary(s);
       })
@@ -101,28 +116,23 @@ export default function MyTestCountsScreen({}: Props) {
     return () => {
       cancelled = true;
     };
-  }, [dateRange, drugFilter, alcoholFilter]);
+  }, [dateRange, reasonForQuery, drugFilter, alcoholFilter, operatorForQuery]);
 
-  const count =
-    summary == null ? null : reason === ALL_REASONS_LABEL ? summary.total : summary.byReason.find((r) => r.reason === reason)?.count ?? 0;
+  const count = summary?.total ?? null;
 
   const buildExport = async () => {
     // Fetched fresh rather than reusing `summary` — guarantees the export reflects the exact
     // filters on screen right now, not a possibly-stale cache from mid-transition.
-    const { byReason, total } = await fetchCompanyWideTestSummary(dateRange, drugFilter, alcoholFilter);
+    const freshSummary = await fetchCompanyWideTestSummary(dateRange, reasonForQuery, drugFilter, alcoholFilter, operatorForQuery);
     const resultLabel = (f: SummaryResultFilter) => (f === 'ALL' ? 'All' : f === 'NEGATIVE' ? 'Negative' : 'Non-Negative');
-    const base64 = await buildSummaryWorkbookBase64(
-      'TrustCheck Test Analytics',
-      [
-        { label: 'Date range', value: formatDateRangeForDisplay(dateRange?.fromMillis, dateRange?.toMillis) },
-        { label: 'Reason for test', value: reason },
-        { label: 'Drug test result', value: resultLabel(drugFilter) },
-        { label: 'Alcohol test result', value: resultLabel(alcoholFilter) },
-      ],
-      byReason,
-      total
-    );
-    return base64;
+    const filters = [
+      ...(operatorEmails ? [{ label: 'Operator', value: operatorEmail }] : []),
+      { label: 'Date range', value: formatDateRangeForDisplay(dateRange?.fromMillis, dateRange?.toMillis) },
+      { label: 'Reason for test', value: reason },
+      { label: 'Drug test result', value: resultLabel(drugFilter) },
+      { label: 'Alcohol test result', value: resultLabel(alcoholFilter) },
+    ];
+    return buildSummaryWorkbookBase64('TrustCheck Test Analytics', filters, freshSummary);
   };
 
   const onDownload = async () => {
@@ -152,6 +162,18 @@ export default function MyTestCountsScreen({}: Props) {
 
   return (
     <ScrollView contentContainerStyle={[styles.container, { paddingBottom: 24 + insets.bottom }]}>
+      {operatorEmails && (
+        <>
+          <Text style={styles.sectionLabel}>Filter by operator</Text>
+          <SelectField
+            label=""
+            value={operatorEmail}
+            options={[ALL_OPERATORS_LABEL, ...operatorEmails]}
+            onChange={setOperatorEmail}
+          />
+        </>
+      )}
+
       <Text style={styles.sectionLabel}>Filter by date</Text>
       <View style={styles.presetRow}>
         {DATE_PRESETS.map((preset) => (

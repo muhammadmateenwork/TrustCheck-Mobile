@@ -4,7 +4,6 @@ import {
   setDoc,
   getDoc,
   getDocs,
-  getCountFromServer,
   query,
   orderBy,
   where,
@@ -12,7 +11,6 @@ import {
   startAfter,
   onSnapshot,
   QueryDocumentSnapshot,
-  QueryConstraint,
   DocumentData,
   Unsubscribe,
   FirestoreError,
@@ -22,7 +20,6 @@ import { httpsCallable } from 'firebase/functions';
 import * as FileSystem from 'expo-file-system/legacy';
 import { firebaseAuth, firestore, storage, functions } from './firebase';
 import { TestRecord, STATUS_COMPLETED } from '../models/TestRecord';
-import { REASON_FOR_TEST_OPTIONS } from '../models/TestSetup';
 import { saveRecord, loadRecord } from './recordRepository';
 import { listRecordJsonFiles } from './fileStorage';
 
@@ -217,7 +214,7 @@ export interface DateRange {
  * on the SAME field the query already orders by (syncedAt), which Firestore can serve from the
  * same index already required for the operatorEmail-equality + syncedAt-orderBy combination — but
  * adding the reasonForTest equality filter on top of that (a third field) needs its own composite
- * index Firestore doesn't have by default; see fetchTestRecordCount's own doc for the same note.
+ * index — see firestore.indexes.json's own entries for this collection.
  */
 export async function fetchAllRecordsPage(
   cursor: QueryDocumentSnapshot<DocumentData> | null,
@@ -261,72 +258,32 @@ export async function fetchAllRecordsPage(
   return { records, mediaUrlsByRecordId, cursor: newCursor, hasMore };
 }
 
-/** Every testRecords doc that ever reaches Firestore already has status COMPLETED — both
- *  SummaryScreen's onSave and retryPendingSyncs only ever call syncRecord after setting that, so
- *  there's no separate status filter needed on any of the queries below. */
-export interface TestCountFilter {
-  /** null = every operator (Admin-only; the operator's own counts screen always sets this). */
-  operatorEmail: string | null;
-  dateRange: DateRange | null;
-  /** null = every reason, not narrowed to one. */
-  reasonForTest: string | null;
-}
-
-/**
- * Count-only query via Firestore's getCountFromServer aggregate — returns just a number, never
- * downloads the matching documents themselves (unlike fetchAllRecordsPage). Powers the operator's
- * own "My Tests" counts screen and Admin's counts export, neither of which should ever pull full
- * record data just to show/export how many tests match a filter.
- *
- * NOTE: combining operatorEmail (equality) + reasonForTest (equality, on the nested
- * `record.testSetup.reasonForTest` field) + a syncedAt range needs a composite index Firestore
- * doesn't have by default (the existing operatorEmail+syncedAt index used by fetchAllRecordsPage
- * above only covers two fields). The first time a reason filter and a date range are combined,
- * Firestore will reject the query with a "create index" error containing a direct console link —
- * that's expected, and the index only needs creating once.
- */
-export async function fetchTestRecordCount(filter: TestCountFilter): Promise<number> {
-  const testRecordsRef = collection(firestore, 'testRecords');
-  const clauses: QueryConstraint[] = [];
-  if (filter.operatorEmail) {
-    clauses.push(where('operatorEmail', '==', filter.operatorEmail) as never);
-  }
-  if (filter.reasonForTest) {
-    clauses.push(where('record.testSetup.reasonForTest', '==', filter.reasonForTest) as never);
-  }
-  if (filter.dateRange?.fromMillis != null) {
-    clauses.push(where('syncedAt', '>=', filter.dateRange.fromMillis) as never);
-  }
-  if (filter.dateRange?.toMillis != null) {
-    clauses.push(where('syncedAt', '<=', filter.dateRange.toMillis) as never);
-  }
-  const snapshot = await getCountFromServer(query(testRecordsRef, ...clauses));
-  return snapshot.data().count;
-}
-
 export interface ReasonCount {
   reason: string;
   count: number;
 }
 
-/**
- * Breakdown of test counts by every REASON_FOR_TEST_OPTIONS value, plus an overall total —
- * exactly what the counts CSV export (operator and Admin) writes one row per. Runs one
- * count-only aggregate query per reason (cheap — no document reads) rather than one query with
- * client-side grouping, since Firestore has no native GROUP BY.
- */
-export async function fetchTestCountsByReason(
-  operatorEmail: string | null,
-  dateRange: DateRange | null
-): Promise<{ byReason: ReasonCount[]; total: number }> {
-  const byReason = await Promise.all(
-    REASON_FOR_TEST_OPTIONS.map(async (reason) => ({
-      reason,
-      count: await fetchTestRecordCount({ operatorEmail, dateRange, reasonForTest: reason }),
-    }))
-  );
-  const total = byReason.reduce((sum, r) => sum + r.count, 0);
-  return { byReason, total };
+export interface DateCount {
+  /** 'YYYY-MM-DD' when granularity is 'day', 'YYYY-MM' when 'month' — always UTC-keyed, see
+   *  getTestSummary's own dateKeyUTC comment for why there's no device-local timezone to use
+   *  instead. */
+  date: string;
+  count: number;
+}
+
+export interface TestSummaryResult {
+  /** Count after every active filter (operator, date range, reason, drug, alcohol) is applied
+   *  together — the one number every other value on this result is consistent with. */
+  total: number;
+  /** One row per reason with its own count, or null when reasonForTest narrows to a single
+   *  reason — a 6-row table that's five zeroes and the one already-selected reason isn't an
+   *  informative "breakdown", so it's omitted rather than sent as a degenerate table. */
+  byReason: ReasonCount[] | null;
+  byDate: DateCount[];
+  /** 'day' when both ends of the date range are set (every calendar day in the range, including
+   *  zero-count days) — 'month' when the range is open-ended (grouping whatever data exists,
+   *  since enumerating every day since the beginning of time isn't bounded). */
+  byDateGranularity: 'day' | 'month';
 }
 
 /** 'ALL' means "don't filter on this" — matches the exact wording used on the Test Analytics
@@ -336,28 +293,36 @@ export async function fetchTestCountsByReason(
 export type SummaryResultFilter = 'ALL' | 'NEGATIVE' | 'NON_NEGATIVE';
 
 /**
- * Company-wide (every operator) test-count breakdown by reason, for the operator-facing "Test
- * Analytics" screen — NOT a direct Firestore query like fetchTestCountsByReason above, because
- * firestore.rules only lets a non-admin operator read their OWN testRecords documents
- * (operatorUid == their own uid); a client-side query spanning every operator would simply be
- * rejected. This instead calls the getTestSummary Cloud Function (functions/index.js, untouched
- * — same backend as the native app), which uses the Admin SDK server-side to bypass that rule and
- * returns only the computed counts, never the underlying documents — see that function's own doc
- * for why that's what keeps it safe to expose to any signed-in operator, not just Admin.
+ * Test-count summary for the Test Analytics screens (operator AND Admin) — NOT a direct Firestore
+ * query, because firestore.rules only lets a non-admin operator read their OWN testRecords
+ * documents (operatorUid == their own uid); a client-side query spanning every operator would
+ * simply be rejected. This calls the getTestSummary Cloud Function (functions/index.js, same
+ * backend as the native app), which uses the Admin SDK server-side to bypass that rule and
+ * returns only computed aggregates, never the underlying documents — see that function's own doc
+ * for why that's what keeps it safe to expose to any signed-in operator, not just Admin, and for
+ * why every filter (including a specific operatorEmail, admin-only) is ANDed together in that one
+ * place rather than reimplemented per-screen.
+ *
+ * @param operatorEmail narrows to one specific operator — admin-only, rejected server-side for a
+ *   non-admin caller. The operator's own screen never sets this (always company-wide).
  */
 export async function fetchCompanyWideTestSummary(
   dateRange: DateRange | null,
+  reasonForTest: string | null = null,
   drugFilter: SummaryResultFilter = 'ALL',
-  alcoholFilter: SummaryResultFilter = 'ALL'
-): Promise<{ byReason: ReasonCount[]; total: number }> {
+  alcoholFilter: SummaryResultFilter = 'ALL',
+  operatorEmail: string | null = null
+): Promise<TestSummaryResult> {
   const call = httpsCallable(functions, 'getTestSummary');
   const result = await call({
     fromMillis: dateRange?.fromMillis ?? null,
     toMillis: dateRange?.toMillis ?? null,
+    reasonForTest: reasonForTest ?? null,
     drugResult: drugFilter === 'ALL' ? null : drugFilter,
     alcoholResult: alcoholFilter === 'ALL' ? null : alcoholFilter,
+    operatorEmail: operatorEmail ?? null,
   });
-  return result.data as { byReason: ReasonCount[]; total: number };
+  return result.data as TestSummaryResult;
 }
 
 /**
