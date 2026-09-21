@@ -1,99 +1,69 @@
-# TrustCheck — Project Handoff Notes
+# TrustCheck-Mobile — Project Recovery Notes
 
-Give this file to Claude at the start of a new session (paste its contents, or just say
-"read HANDOFF.md in TrustCheck-Mobile") after a laptop reset or on a new machine, so there's
-no need to re-derive any of this from scratch.
+Give this file to Claude at the start of a new session after a reset/new machine — paste its
+contents, or say "read HANDOFF.md in TrustCheck-Mobile" once it's cloned back.
 
 Last updated: 2026-09-21.
 
-## The two codebases — don't confuse them
+## What this project is
 
-- **`TrustCheck-Mobile`** — React Native/Expo app. **This is the current, live app**, used on both
-  Android and iPhone. GitHub: `https://github.com/muhammadmateenwork/TrustCheck-Mobile` (branch
-  `master`). Fully committed and pushed as of this writing.
-- **`AA`** (folder, sits alongside `TrustCheck-Mobile` on Desktop) — an older, **Android-only**
-  native Java app that TrustCheck-Mobile replaced. The client no longer uses this app directly,
-  **but** it also contains `functions/` — the Firebase Cloud Functions backend that
-  TrustCheck-Mobile actively depends on (sending report emails, admin operator management, Test
-  Analytics counts). That backend code is very much live.
-  - Status as of 2026-09-21: just committed locally (`git init -b main`, first commit
-    `a42aa4d`) but **not yet pushed to GitHub** — waiting on the user to create an empty repo and
-    share its URL. If you're reading this after a reset and that never happened, treat re-doing
-    that backup as the first priority.
+React Native/Expo app, runs on Android and iPhone — this is the current, live app.
+- GitHub: `https://github.com/muhammadmateenwork/TrustCheck-Mobile` (branch `master`)
+- Depends on a separate Firebase Cloud Functions backend (see "Backend" below) for sending report
+  emails, admin operator management, and Test Analytics counts. That backend is already deployed
+  and live in production — a laptop reset does not affect it.
 
-## Accounts you'll need to sign back into (nothing to install, just re-login)
-
-| Account | Used for | Notes |
-|---|---|---|
-| GitHub — `muhammadmateenwork` | Cloning/pushing both repos | Git's cached credentials are wiped by a reset; re-authenticate on first push |
-| Expo/EAS — `mateen543` (expo.dev) | Building the app (`eas build`) | **Android signing keystore lives on Expo's servers**, not the laptop — safe across resets as long as you can log into this account |
-| Firebase project `trustcheck123` (console.firebase.google.com) | Firestore, Cloud Functions, Storage, Auth | Tied to whichever Google account was used to create it |
-
-No Apple Developer account has been set up yet — only Android builds have been made via EAS so
-far. You'll need one ($99/year) the first time an iOS build is actually produced.
-
-## First-time setup after cloning fresh
+## Recover the app itself
 
 ```bash
 git clone https://github.com/muhammadmateenwork/TrustCheck-Mobile.git
 cd TrustCheck-Mobile
 npm install
-npx eas-cli login
 ```
 
-Then copy back the `test-photos/` folder from USB into the project root — it's gitignored
-(real cassette/QR reference photos used to tune the scanner, not reproducible from code).
+Restore `test-photos/` into the project root from wherever it was saved (USB/cloud/zip) — it's
+gitignored, contains real cassette/QR reference photos used to tune the scanner, and isn't
+reproducible from code.
 
-For the backend:
-```bash
-git clone <AA repo URL once it exists>
-cd AA/functions
-npm install
-npx firebase-tools login
-```
+Sign back into these before building or deploying (wiped by a reset, but don't affect the code):
+- `npx eas-cli login` — Expo account `mateen543`. **The Android signing keystore lives on Expo's
+  servers**, not the laptop, so it's unaffected by any of this.
+- `npx firebase-tools login` — the Google account tied to Firebase project `trustcheck123`.
 
-## Secrets — where they actually live (never in a file on this laptop)
-
-- SMTP email credentials: Firebase Secret Manager, under project `trustcheck123`. Not visible in
-  any source file. To view/rotate: `npx firebase-tools functions:secrets:access SMTP_USER
-  --project trustcheck123` (or `:set` to change it). Only needed if migrating to a brand-new
-  Firebase project — a laptop reset alone doesn't touch these.
-- Firebase web config (`apiKey` etc.) in `src/services/firebase.ts` — this is **not** a secret
-  (Google's own guidance: these keys are meant to be public; access is controlled by Firestore/
-  Storage security rules, not by hiding this value). Safe as committed in git.
-
-## Commands used regularly on this project
-
-Deploy backend changes (run from `AA/`, after `firebase login`):
-```bash
-npx firebase-tools deploy --only functions --project trustcheck123
-npx firebase-tools deploy --only firestore:indexes --project trustcheck123
-npx firebase-tools deploy --only firestore:rules --project trustcheck123
-```
-
-Build the app (run from `TrustCheck-Mobile/`, after `eas login`):
+Build a new APK:
 ```bash
 CI=1 npx eas-cli build --profile preview --platform android --non-interactive --no-wait
 ```
-Check a build's status: `npx eas-cli build:view <build-id> --json`
+Check status: `npx eas-cli build:view <build-id> --json`
 
-Type-check before considering any change done:
-```bash
-npx tsc --noEmit
-```
+No iOS build has been made yet — that needs an Apple Developer account ($99/yr) when it happens.
 
-## Architecture facts worth knowing before touching anything
+Before calling any code change done: `npx tsc --noEmit` must exit clean.
 
-- Firestore security: a non-admin operator can only read their own `testRecords` (enforced in
-  `firestore.rules`); Admin bypasses via a Firebase Auth custom claim (`role: "admin"`), not a
-  Firestore field (so a client can never grant itself admin by writing to its own doc).
-- The `getTestSummary` Cloud Function is the one place that computes Test Analytics counts for
-  BOTH the operator's and Admin's screens — it does a single `syncedAt`-range Firestore query and
-  filters everything else (operator, reason(s), drug/alcohol result) in memory, specifically to
-  avoid needing a new Firestore composite index for every filter combination. If you ever see a
-  "this query requires an index" error again, the fix is almost always to move more filtering into
-  that function rather than adding another `where()` clause to a client-side query.
-- Guest/anonymous test sessions never sync to Firestore at all, by design — they're invisible to
-  Admin and excluded from every count automatically, with no extra filtering needed anywhere.
-- Report file names are always forced to start with `D&A-Test-`, even if the operator edits the
-  name field; the field also becomes read-only once Save is pressed.
+## Backend (separate project, not part of this repo)
+
+Firebase project `trustcheck123` — Cloud Functions (`getTestSummary`, `sendReportEmail`, admin
+operator management), Firestore, Storage, Auth. Source lives in a different local folder (`AA/`,
+next to this one on Desktop), which is actually a **separate, older native Android app** the
+client no longer uses directly — kept only because its `functions/` folder is this app's real,
+live backend.
+- As of 2026-09-21, `AA` is committed locally but **not yet pushed to GitHub** — still pending an
+  empty repo + URL from the user. If that never happened, redo it before relying on it being safe.
+- SMTP email credentials live in Firebase Secret Manager under this project — never in a file, so
+  a laptop reset doesn't touch them either way.
+
+## Two non-obvious things, so they aren't mistaken for bugs
+
+- `getTestSummary` computes Test Analytics counts for both the operator's and Admin's screens by
+  running ONE `syncedAt`-range Firestore query and filtering everything else (operator, reason(s),
+  drug/alcohol result) in memory — not one Firestore `where()` per filter. That's deliberate: it
+  avoids needing a new Firestore composite index every time a filter is added. Don't reintroduce
+  per-filter `where()` clauses without remembering why this exists.
+- Report file names are always forced to start with `D&A-Test-`, and the field becomes read-only
+  once Save is pressed — both intentional.
+
+## Not part of this project
+
+There's a `DA` folder on the Desktop — decompiled output of an unrelated third-party app
+(`com.draeger.add.apk`, via apktool/jadx). Confirmed nothing in this codebase references it.
+Ignore it; it's not needed for recovery.
