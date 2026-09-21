@@ -20,6 +20,10 @@ git clone https://github.com/muhammadmateenwork/TrustCheck-Mobile.git
 cd TrustCheck-Mobile
 npm install
 ```
+Built and tested with Node `v22.13.0` / npm `10.9.2` — not pinned anywhere (no `.nvmrc`), but worth
+matching if something installs oddly on a very different Node version. `package.json` +
+`package-lock.json` are both committed, so `npm install` alone reproduces the exact same dependency
+tree regardless — no need to back up `node_modules` itself.
 
 Restore `test-photos/` into the project root from wherever it was saved (USB/cloud/zip) — it's
 gitignored, contains real cassette/QR reference photos used to tune the scanner, and isn't
